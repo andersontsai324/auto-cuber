@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Rubik Drag Fix</title>
+<title>Auto Cuber</title>
 <style>
 body { margin:0; overflow:hidden; background:#e9ecef; }
 canvas { display:block; }
@@ -30,12 +30,12 @@ function createCubie(x,y,z){
     const geo = new THREE.BoxGeometry(1,1,1);
 
     const mats = [
-        new THREE.MeshBasicMaterial({color:0xff0000}),
-        new THREE.MeshBasicMaterial({color:0xffa500}),
-        new THREE.MeshBasicMaterial({color:0xffffff}),
-        new THREE.MeshBasicMaterial({color:0xffff00}),
-        new THREE.MeshBasicMaterial({color:0x00ff00}),
-        new THREE.MeshBasicMaterial({color:0x0000ff})
+        new THREE.MeshBasicMaterial({color:0xff0000}), // right
+        new THREE.MeshBasicMaterial({color:0xffa500}), // left
+        new THREE.MeshBasicMaterial({color:0xffffff}), // top
+        new THREE.MeshBasicMaterial({color:0xffff00}), // bottom
+        new THREE.MeshBasicMaterial({color:0x00ff00}), // front
+        new THREE.MeshBasicMaterial({color:0x0000ff})  // back
     ];
 
     const c = new THREE.Mesh(geo, mats);
@@ -62,11 +62,9 @@ let active = [];
 let faceNormal = new THREE.Vector3();
 
 let startMouse = new THREE.Vector2();
-let moveVec = new THREE.Vector2();
-
 let axis = null;
 
-// ---------------- FACE NORMAL ----------------
+// ---------- FACE NORMAL ----------
 function getFaceNormal(obj){
     const x = Math.round(obj.position.x / spacing);
     const y = Math.round(obj.position.y / spacing);
@@ -80,19 +78,18 @@ function getFaceNormal(obj){
     return new THREE.Vector3(0,0,-1);
 }
 
-// ---------------- PROJECT DRAG (IMPORTANT FIX) ----------------
+// ---------- DRAG VECTOR ----------
 function getDragVector(e){
-    const dx = (e.clientX - startMouse.x);
-    const dy = (e.clientY - startMouse.y);
+    const dx = e.clientX - startMouse.x;
+    const dy = e.clientY - startMouse.y;
 
-    // camera-relative axes (prevents diagonal junk)
     const right = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
     const up = new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
 
     return right.multiplyScalar(dx).add(up.multiplyScalar(-dy));
 }
 
-// ---------------- START ----------------
+// ---------- MOUSE DOWN ----------
 window.addEventListener("mousedown",(e)=>{
 
     mouse.x = (e.clientX/innerWidth)*2-1;
@@ -116,51 +113,54 @@ window.addEventListener("mousedown",(e)=>{
     const z = Math.round(selected.position.z / spacing);
 
     active = [];
+    axis = null;
 
+    // correct slice selection
     for(let c of cubies){
         const cx = Math.round(c.position.x / spacing);
         const cy = Math.round(c.position.y / spacing);
         const cz = Math.round(c.position.z / spacing);
 
-        if(
-            (faceNormal.x && cx === x) ||
-            (faceNormal.y && cy === y) ||
-            (faceNormal.z && cz === z)
-        ){
+        if (Math.abs(faceNormal.x) === 1 && cx === x) {
+            active.push(c);
+            pivot.attach(c);
+        }
+        else if (Math.abs(faceNormal.y) === 1 && cy === y) {
+            active.push(c);
+            pivot.attach(c);
+        }
+        else if (Math.abs(faceNormal.z) === 1 && cz === z) {
             active.push(c);
             pivot.attach(c);
         }
     }
 
+    // fixed axis selection
+    axis = Math.abs(faceNormal.x) ? "y"
+         : Math.abs(faceNormal.y) ? "x"
+         : "z";
+
     dragging = true;
 });
 
-// ---------------- MOVE (NO DIAGONAL SPIN BUG FIXED HERE) ----------------
+// ---------- MOUSE MOVE ----------
 window.addEventListener("mousemove",(e)=>{
     if(!dragging || !pivot) return;
 
     const drag = getDragVector(e);
 
-    // lock axis based on face normal
-    if(!axis){
-        if(Math.abs(faceNormal.x)) axis = "y";
-        else if(Math.abs(faceNormal.y)) axis = "x";
-        else axis = "x";
-    }
-
     const amount = drag.length() * 0.002;
-
-    // direction fix using sign of dominant axis
     const sign = (drag.x + drag.y) > 0 ? 1 : -1;
 
-    pivot.rotation[axis] = amount * sign;
+    // accumulate rotation (IMPORTANT FIX)
+    pivot.rotation[axis] += amount * sign;
 });
 
-// ---------------- RELEASE ----------------
+// ---------- MOUSE UP ----------
 window.addEventListener("mouseup",()=>{
     if(!dragging || !pivot) return;
 
-    // snap clean 90°
+    // snap to 90°
     const snap = Math.round(pivot.rotation[axis] / (Math.PI/2)) * (Math.PI/2);
     pivot.rotation[axis] = snap;
 
@@ -184,7 +184,7 @@ window.addEventListener("mouseup",()=>{
     axis = null;
 });
 
-// ---------------- LOOP ----------------
+// ---------- LOOP ----------
 function animate(){
     requestAnimationFrame(animate);
     renderer.render(scene,camera);
