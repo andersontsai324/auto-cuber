@@ -37,17 +37,16 @@ document.body.appendChild(renderer.domElement);
 const spacing = 1.05;
 const cubies = [];
 
-// ---------------- CUBES ----------------
 function createCubie(x, y, z) {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
 
     const materials = [
-        new THREE.MeshBasicMaterial({ color: 0xff0000 }),
-        new THREE.MeshBasicMaterial({ color: 0xffa500 }),
-        new THREE.MeshBasicMaterial({ color: 0xffffff }),
-        new THREE.MeshBasicMaterial({ color: 0xffff00 }),
-        new THREE.MeshBasicMaterial({ color: 0x00ff00 }),
-        new THREE.MeshBasicMaterial({ color: 0x0000ff })
+        new THREE.MeshBasicMaterial({ color: 0xff0000 }), // right
+        new THREE.MeshBasicMaterial({ color: 0xffa500 }), // left
+        new THREE.MeshBasicMaterial({ color: 0xffffff }), // top
+        new THREE.MeshBasicMaterial({ color: 0xffff00 }), // bottom
+        new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // front
+        new THREE.MeshBasicMaterial({ color: 0x0000ff })  // back
     ];
 
     const cube = new THREE.Mesh(geometry, materials);
@@ -55,7 +54,7 @@ function createCubie(x, y, z) {
     return cube;
 }
 
-// build 27 cubies
+// build cube
 for (let x = -1; x <= 1; x++) {
     for (let y = -1; y <= 1; y++) {
         for (let z = -1; z <= 1; z++) {
@@ -66,7 +65,6 @@ for (let x = -1; x <= 1; x++) {
     }
 }
 
-// ---------------- STATE ----------------
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -78,7 +76,6 @@ let face = null;
 let start = null;
 let currentAngle = 0;
 
-// ---------------- FACE DETECTION ----------------
 function getFace(cube) {
     const x = Math.round(cube.position.x / spacing);
     const y = Math.round(cube.position.y / spacing);
@@ -92,7 +89,6 @@ function getFace(cube) {
     if (z === -1) return "z-";
 }
 
-// ---------------- MOUSE DOWN ----------------
 window.addEventListener("mousedown", (e) => {
 
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -106,14 +102,10 @@ window.addEventListener("mousedown", (e) => {
     selected = hits[0].object;
     face = getFace(selected);
 
-    const sx = e.clientX;
-    const sy = e.clientY;
-
-    start = { sx, sy };
+    start = { sx: e.clientX, sy: e.clientY };
     dragging = true;
 });
 
-// ---------------- MOUSE MOVE ----------------
 window.addEventListener("mousemove", (e) => {
     if (!dragging || !selected) return;
 
@@ -141,24 +133,20 @@ window.addEventListener("mousemove", (e) => {
                 (face.startsWith("z") && cz === z)
             ) {
                 active.push(c);
-                pivot.add(c);
+                pivot.attach(c); // IMPORTANT FIX
             }
         }
     }
 
-    // smooth drag → rotation mapping
     let angle = 0;
-
     if (face.startsWith("x")) angle = dy * 0.005;
     if (face.startsWith("y")) angle = dx * 0.005;
     if (face.startsWith("z")) angle = dx * 0.005;
 
     pivot.rotation[face[0]] = angle;
-
     currentAngle = angle;
 });
 
-// ---------------- MOUSE UP ----------------
 window.addEventListener("mouseup", () => {
     if (!dragging) return;
 
@@ -167,9 +155,9 @@ window.addEventListener("mouseup", () => {
     if (pivot) {
         pivot.rotation[face[0]] = snap;
 
+        // 🔥 IMPORTANT FIX: preserve world transforms
         for (let c of active) {
-            scene.add(c);
-
+            scene.attach(c);
             c.position.x = Math.round(c.position.x / spacing) * spacing;
             c.position.y = Math.round(c.position.y / spacing) * spacing;
             c.position.z = Math.round(c.position.z / spacing) * spacing;
@@ -184,14 +172,12 @@ window.addEventListener("mouseup", () => {
     active = [];
 });
 
-// ---------------- RENDER LOOP ----------------
 function animate() {
     requestAnimationFrame(animate);
     renderer.render(scene, camera);
 }
 animate();
 
-// ---------------- RESIZE ----------------
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
