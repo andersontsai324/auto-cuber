@@ -30,12 +30,12 @@ function createCubie(x,y,z){
     const geo = new THREE.BoxGeometry(1,1,1);
 
     const mats = [
-        new THREE.MeshBasicMaterial({color:0xff0000}),
-        new THREE.MeshBasicMaterial({color:0xffa500}),
-        new THREE.MeshBasicMaterial({color:0xffffff}),
-        new THREE.MeshBasicMaterial({color:0xffff00}),
-        new THREE.MeshBasicMaterial({color:0x00ff00}),
-        new THREE.MeshBasicMaterial({color:0x0000ff})
+        new THREE.MeshBasicMaterial({color:0xff0000}), // right
+        new THREE.MeshBasicMaterial({color:0xffa500}), // left
+        new THREE.MeshBasicMaterial({color:0xffffff}), // top
+        new THREE.MeshBasicMaterial({color:0xffff00}), // bottom
+        new THREE.MeshBasicMaterial({color:0x00ff00}), // front
+        new THREE.MeshBasicMaterial({color:0x0000ff})  // back
     ];
 
     const c = new THREE.Mesh(geo, mats);
@@ -65,36 +65,36 @@ let start=null;
 let axis=null;
 let angle=0;
 
-// ---------------- FACE ----------------
+// ---------------- FACE FIXED ----------------
 function getFace(c){
     const x=Math.round(c.position.x/spacing);
     const y=Math.round(c.position.y/spacing);
     const z=Math.round(c.position.z/spacing);
 
-    if(x===1) return "x";
-    if(x===-1) return "x";
-    if(y===1) return "y";
-    if(y===-1) return "y";
-    if(z===1) return "z";
-    if(z===-1) return "z";
+    if(x===1) return "+x";
+    if(x===-1) return "-x";
+    if(y===1) return "+y";
+    if(y===-1) return "-y";
+    if(z===1) return "+z";
+    if(z===-1) return "-z";
 }
 
-// ---------------- AXIS RULE (STRICT) ----------------
+// ---------------- AXIS RULE ----------------
 function pickAxis(face, dx, dy){
     const horizontal = Math.abs(dx) > Math.abs(dy);
 
-    if(face === "x"){
+    if(face.includes("x")){
         return horizontal ? "y" : "z";
     }
-    if(face === "y"){
+    if(face.includes("y")){
         return horizontal ? "x" : "z";
     }
-    if(face === "z"){
+    if(face.includes("z")){
         return horizontal ? "x" : "y";
     }
 }
 
-// ---------------- INPUT ----------------
+// ---------------- MOUSE DOWN ----------------
 window.addEventListener("mousedown",(e)=>{
     mouse.x = (e.clientX/innerWidth)*2-1;
     mouse.y = -(e.clientY/innerHeight)*2+1;
@@ -109,40 +109,40 @@ window.addEventListener("mousedown",(e)=>{
     start = {x:e.clientX, y:e.clientY};
 
     dragging=true;
+    pivot = new THREE.Object3D();
+    scene.add(pivot);
+
+    const x=Math.round(selected.position.x/spacing);
+    const y=Math.round(selected.position.y/spacing);
+    const z=Math.round(selected.position.z/spacing);
+
+    active = [];
+
+    for(let c of cubies){
+        const cx=Math.round(c.position.x/spacing);
+        const cy=Math.round(c.position.y/spacing);
+        const cz=Math.round(c.position.z/spacing);
+
+        if(
+            (face.includes("x") && cx===x) ||
+            (face.includes("y") && cy===y) ||
+            (face.includes("z") && cz===z)
+        ){
+            active.push(c);
+            pivot.attach(c);
+        }
+    }
 });
 
+// ---------------- MOUSE MOVE ----------------
 window.addEventListener("mousemove",(e)=>{
-    if(!dragging || !selected) return;
+    if(!dragging || !pivot) return;
 
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
 
-    if(!pivot){
-        pivot = new THREE.Object3D();
-        scene.add(pivot);
-
-        const x=Math.round(selected.position.x/spacing);
-        const y=Math.round(selected.position.y/spacing);
-        const z=Math.round(selected.position.z/spacing);
-
-        active=[];
-
-        for(let c of cubies){
-            const cx=Math.round(c.position.x/spacing);
-            const cy=Math.round(c.position.y/spacing);
-            const cz=Math.round(c.position.z/spacing);
-
-            if(
-                (face==="x" && cx===x) ||
-                (face==="y" && cy===y) ||
-                (face==="z" && cz===z)
-            ){
-                active.push(c);
-                pivot.attach(c);
-            }
-        }
-
-        axis = pickAxis(face, dx, dy); // LOCK AXIS ONCE
+    if(axis === null){
+        axis = pickAxis(face, dx, dy);
     }
 
     const move = (axis==="x" ? dx : dy) * 0.005;
@@ -151,19 +151,17 @@ window.addEventListener("mousemove",(e)=>{
     angle = move;
 });
 
-// ---------------- SNAP + FIX TRANSFORM ----------------
+// ---------------- MOUSE UP + SNAP ----------------
 window.addEventListener("mouseup",()=>{
     if(!dragging) return;
 
-    const snap = Math.round(angle/(Math.PI/2))*(Math.PI/2);
-
     if(pivot){
+        const snap = Math.round(angle/(Math.PI/2))*(Math.PI/2);
         pivot.rotation[axis] = snap;
 
         for(let c of active){
             scene.attach(c);
 
-            // HARD SNAP (prevents slant/drift)
             c.position.x = Math.round(c.position.x/spacing)*spacing;
             c.position.y = Math.round(c.position.y/spacing)*spacing;
             c.position.z = Math.round(c.position.z/spacing)*spacing;
@@ -180,8 +178,10 @@ window.addEventListener("mouseup",()=>{
     pivot=null;
     active=[];
     axis=null;
+    angle=0;
 });
 
+// ---------------- RENDER LOOP ----------------
 function animate(){
     requestAnimationFrame(animate);
     renderer.render(scene,camera);
