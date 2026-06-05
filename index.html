@@ -37,24 +37,17 @@ document.body.appendChild(renderer.domElement);
 const spacing = 1.05;
 const cubies = [];
 
-// ---------------- LIGHTING (FIX IMPROVEMENT) ----------------
-const light = new THREE.DirectionalLight(0xffffff, 1);
-light.position.set(5, 10, 7);
-scene.add(light);
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-
 // ---------------- CUBES ----------------
 function createCubie(x, y, z) {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
 
     const materials = [
-        new THREE.MeshStandardMaterial({ color: 0xff0000 }), // right
-        new THREE.MeshStandardMaterial({ color: 0xffa500 }), // left
-        new THREE.MeshStandardMaterial({ color: 0xffffff }), // top
-        new THREE.MeshStandardMaterial({ color: 0xffff00 }), // bottom
-        new THREE.MeshStandardMaterial({ color: 0x00ff00 }), // front
-        new THREE.MeshStandardMaterial({ color: 0x0000ff })  // back
+        new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+        new THREE.MeshBasicMaterial({ color: 0xffa500 }),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        new THREE.MeshBasicMaterial({ color: 0xffff00 }),
+        new THREE.MeshBasicMaterial({ color: 0x00ff00 }),
+        new THREE.MeshBasicMaterial({ color: 0x0000ff })
     ];
 
     const cube = new THREE.Mesh(geometry, materials);
@@ -113,7 +106,10 @@ window.addEventListener("mousedown", (e) => {
     selected = hits[0].object;
     face = getFace(selected);
 
-    start = { sx: e.clientX, sy: e.clientY };
+    const sx = e.clientX;
+    const sy = e.clientY;
+
+    start = { sx, sy };
     dragging = true;
 });
 
@@ -124,7 +120,6 @@ window.addEventListener("mousemove", (e) => {
     const dx = e.clientX - start.sx;
     const dy = e.clientY - start.sy;
 
-    // ---------------- CREATE PIVOT ONCE ----------------
     if (!pivot) {
         pivot = new THREE.Object3D();
         scene.add(pivot);
@@ -146,31 +141,19 @@ window.addEventListener("mousemove", (e) => {
                 (face.startsWith("z") && cz === z)
             ) {
                 active.push(c);
-
-                // FIX: preserve world transform properly
-                pivot.attach(c);
+                pivot.add(c);
             }
         }
-
-        // FIX: pivot centered on layer
-        pivot.position.set(
-            x * spacing,
-            y * spacing,
-            z * spacing
-        );
     }
 
-    // ---------------- ROTATION CONTROL ----------------
+    // smooth drag → rotation mapping
     let angle = 0;
 
     if (face.startsWith("x")) angle = dy * 0.005;
     if (face.startsWith("y")) angle = dx * 0.005;
     if (face.startsWith("z")) angle = dx * 0.005;
 
-    // FIX: explicit axis mapping (no string indexing hack)
-    if (face.startsWith("x")) pivot.rotation.x = angle;
-    if (face.startsWith("y")) pivot.rotation.y = angle;
-    if (face.startsWith("z")) pivot.rotation.z = angle;
+    pivot.rotation[face[0]] = angle;
 
     currentAngle = angle;
 });
@@ -182,15 +165,11 @@ window.addEventListener("mouseup", () => {
     const snap = Math.round(currentAngle / (Math.PI / 2)) * (Math.PI / 2);
 
     if (pivot) {
-
-        if (face.startsWith("x")) pivot.rotation.x = snap;
-        if (face.startsWith("y")) pivot.rotation.y = snap;
-        if (face.startsWith("z")) pivot.rotation.z = snap;
+        pivot.rotation[face[0]] = snap;
 
         for (let c of active) {
             scene.add(c);
 
-            // snap positions cleanly
             c.position.x = Math.round(c.position.x / spacing) * spacing;
             c.position.y = Math.round(c.position.y / spacing) * spacing;
             c.position.z = Math.round(c.position.z / spacing) * spacing;
