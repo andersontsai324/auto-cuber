@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Rubik Fix</title>
+<title>Rubik Smooth</title>
 <style>
 body { margin:0; overflow:hidden; background:#e9ecef; }
 canvas { display:block; }
@@ -30,12 +30,12 @@ function createCubie(x,y,z){
     const geo = new THREE.BoxGeometry(1,1,1);
 
     const mats = [
-        new THREE.MeshBasicMaterial({color:0xff0000}), // right
-        new THREE.MeshBasicMaterial({color:0xffa500}), // left
-        new THREE.MeshBasicMaterial({color:0xffffff}), // top
-        new THREE.MeshBasicMaterial({color:0xffff00}), // bottom
-        new THREE.MeshBasicMaterial({color:0x00ff00}), // front
-        new THREE.MeshBasicMaterial({color:0x0000ff})  // back
+        new THREE.MeshBasicMaterial({color:0xff0000}),
+        new THREE.MeshBasicMaterial({color:0xffa500}),
+        new THREE.MeshBasicMaterial({color:0xffffff}),
+        new THREE.MeshBasicMaterial({color:0xffff00}),
+        new THREE.MeshBasicMaterial({color:0x00ff00}),
+        new THREE.MeshBasicMaterial({color:0x0000ff})
     ];
 
     const c = new THREE.Mesh(geo, mats);
@@ -55,17 +55,17 @@ for(let z=-1;z<=1;z++){
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-let dragging=false;
-let selected=null;
-let pivot=null;
-let active=[];
-let face=null;
-let start=null;
+let dragging = false;
+let selected = null;
+let pivot = null;
+let active = [];
+let face = null;
+let start = null;
 
-let axis=null;
-let angle=0;
+let axis = null;
+let animating = false;
 
-// ---------------- FACE FIXED ----------------
+// ---------------- FACE ----------------
 function getFace(c){
     const x=Math.round(c.position.x/spacing);
     const y=Math.round(c.position.y/spacing);
@@ -79,23 +79,19 @@ function getFace(c){
     if(z===-1) return "-z";
 }
 
-// ---------------- AXIS RULE ----------------
+// ---------------- AXIS ----------------
 function pickAxis(face, dx, dy){
     const horizontal = Math.abs(dx) > Math.abs(dy);
 
-    if(face.includes("x")){
-        return horizontal ? "y" : "z";
-    }
-    if(face.includes("y")){
-        return horizontal ? "x" : "z";
-    }
-    if(face.includes("z")){
-        return horizontal ? "x" : "y";
-    }
+    if(face.includes("x")) return horizontal ? "y" : "z";
+    if(face.includes("y")) return horizontal ? "x" : "z";
+    if(face.includes("z")) return horizontal ? "x" : "y";
 }
 
-// ---------------- MOUSE DOWN ----------------
+// ---------------- START ----------------
 window.addEventListener("mousedown",(e)=>{
+    if(animating) return;
+
     mouse.x = (e.clientX/innerWidth)*2-1;
     mouse.y = -(e.clientY/innerHeight)*2+1;
 
@@ -108,7 +104,8 @@ window.addEventListener("mousedown",(e)=>{
     face = getFace(selected);
     start = {x:e.clientX, y:e.clientY};
 
-    dragging=true;
+    dragging = true;
+
     pivot = new THREE.Object3D();
     scene.add(pivot);
 
@@ -134,7 +131,7 @@ window.addEventListener("mousedown",(e)=>{
     }
 });
 
-// ---------------- MOUSE MOVE ----------------
+// ---------------- MOVE ----------------
 window.addEventListener("mousemove",(e)=>{
     if(!dragging || !pivot) return;
 
@@ -144,44 +141,73 @@ window.addEventListener("mousemove",(e)=>{
     if(axis === null){
         axis = pickAxis(face, dx, dy);
     }
-
-    const move = (axis==="x" ? dx : dy) * 0.005;
-
-    pivot.rotation[axis] = move;
-    angle = move;
 });
 
-// ---------------- MOUSE UP + SNAP ----------------
-window.addEventListener("mouseup",()=>{
-    if(!dragging) return;
+// ---------------- ANIMATED TURN ----------------
+function animateTurn(targetAngle){
+    animating = true;
 
-    if(pivot){
-        const snap = Math.round(angle/(Math.PI/2))*(Math.PI/2);
-        pivot.rotation[axis] = snap;
+    const duration = 200;
+    const startTime = performance.now();
+    const startAngle = pivot.rotation[axis] || 0;
 
-        for(let c of active){
-            scene.attach(c);
+    function step(t){
+        const progress = Math.min((t - startTime) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3); // smooth ease-out
 
-            c.position.x = Math.round(c.position.x/spacing)*spacing;
-            c.position.y = Math.round(c.position.y/spacing)*spacing;
-            c.position.z = Math.round(c.position.z/spacing)*spacing;
+        pivot.rotation[axis] = startAngle + (targetAngle - startAngle) * eased;
 
-            c.rotation.set(0,0,0);
-            c.updateMatrixWorld(true);
+        if(progress < 1){
+            requestAnimationFrame(step);
+        } else {
+            finalizeTurn();
         }
-
-        scene.remove(pivot);
     }
 
-    dragging=false;
-    selected=null;
-    pivot=null;
-    active=[];
-    axis=null;
-    angle=0;
+    requestAnimationFrame(step);
+}
+
+// ---------------- FINALIZE ----------------
+function finalizeTurn(){
+    const snap = Math.round(pivot.rotation[axis] / (Math.PI/2)) * (Math.PI/2);
+    pivot.rotation[axis] = snap;
+
+    for(let c of active){
+        scene.attach(c);
+
+        c.position.x = Math.round(c.position.x/spacing)*spacing;
+        c.position.y = Math.round(c.position.y/spacing)*spacing;
+        c.position.z = Math.round(c.position.z/spacing)*spacing;
+
+        c.rotation.set(0,0,0);
+        c.updateMatrixWorld(true);
+    }
+
+    scene.remove(pivot);
+
+    pivot = null;
+    active = [];
+    axis = null;
+    animating = false;
+}
+
+// ---------------- RELEASE ----------------
+window.addEventListener("mouseup",()=>{
+    if(!dragging || !pivot) return;
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+
+    const move = (axis === "x" ? dx : dy);
+    const target = Math.round(move / 80) * (Math.PI/2);
+
+    animateTurn(target);
+
+    dragging = false;
+    selected = null;
 });
 
-// ---------------- RENDER LOOP ----------------
+// ---------------- LOOP ----------------
 function animate(){
     requestAnimationFrame(animate);
     renderer.render(scene,camera);
