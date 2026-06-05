@@ -45,7 +45,7 @@ function createCubie(x,y,z){
     ];
 
     const cube = new THREE.Mesh(geometry, materials);
-    cube.position.set(x*spacing, y*spacing, z*spacing);
+    cube.position.set(x*spacing,y*spacing,z*spacing);
     return cube;
 }
 
@@ -67,9 +67,10 @@ let pivot = null;
 let active = [];
 let face = null;
 let start = null;
+let currentAxis = null;
 let currentAngle = 0;
 
-// ---------------- FACE DETECTION ----------------
+// ---------------- FACE DETECT ----------------
 function getFace(cube){
     const x = Math.round(cube.position.x / spacing);
     const y = Math.round(cube.position.y / spacing);
@@ -100,22 +101,20 @@ window.addEventListener("mousedown",(e)=>{
     dragging = true;
 });
 
-// ---------------- AXIS DECISION ----------------
-function getRotationAxis(face, dx, dy){
+// ---------------- AXIS RULE (FIXED) ----------------
+function decideAxis(face, dx, dy){
 
     const horizontal = Math.abs(dx) > Math.abs(dy);
 
-    // X FACE
+    // STRICT RULES (no diagonal blending)
     if(face.startsWith("x")){
         return horizontal ? "y" : "z";
     }
 
-    // Y FACE
     if(face.startsWith("y")){
         return horizontal ? "x" : "z";
     }
 
-    // Z FACE
     if(face.startsWith("z")){
         return horizontal ? "x" : "y";
     }
@@ -154,12 +153,15 @@ window.addEventListener("mousemove",(e)=>{
         }
     }
 
-    const axis = getRotationAxis(face, dx, dy);
+    // 🔥 KEY FIX: pick axis ONCE per drag direction
+    if(!currentAxis){
+        currentAxis = decideAxis(face, dx, dy);
+    }
 
-    let angle = 0.005 * (Math.abs(dx) > Math.abs(dy) ? dx : dy);
+    let delta = (currentAxis === "x" ? dx : dy) * 0.005;
 
-    pivot.rotation[axis] = angle;
-    currentAngle = angle;
+    pivot.rotation[currentAxis] = delta;
+    currentAngle = delta;
 });
 
 // ---------------- MOUSE UP ----------------
@@ -169,9 +171,7 @@ window.addEventListener("mouseup",()=>{
     const snap = Math.round(currentAngle/(Math.PI/2))*(Math.PI/2);
 
     if(pivot){
-        const axis = Object.keys(pivot.rotation).find(k => pivot.rotation[k] !== 0);
-
-        pivot.rotation[axis] = snap;
+        pivot.rotation[currentAxis] = snap;
 
         for(let c of active){
             scene.attach(c);
@@ -188,6 +188,7 @@ window.addEventListener("mouseup",()=>{
     selected = null;
     pivot = null;
     active = [];
+    currentAxis = null;
 });
 
 function animate(){
