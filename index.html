@@ -62,6 +62,8 @@ let active = [];
 let faceNormal = new THREE.Vector3();
 
 let startMouse = new THREE.Vector2();
+let moveVec = new THREE.Vector2();
+
 let axis = null;
 
 // ---------------- FACE NORMAL ----------------
@@ -78,18 +80,19 @@ function getFaceNormal(obj){
     return new THREE.Vector3(0,0,-1);
 }
 
-// ---------------- DRAG VECTOR ----------------
+// ---------------- PROJECT DRAG (IMPORTANT FIX) ----------------
 function getDragVector(e){
     const dx = (e.clientX - startMouse.x);
     const dy = (e.clientY - startMouse.y);
 
+    // camera-relative axes (prevents diagonal junk)
     const right = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
     const up = new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
 
     return right.multiplyScalar(dx).add(up.multiplyScalar(-dy));
 }
 
-// ---------------- MOUSE DOWN ----------------
+// ---------------- START ----------------
 window.addEventListener("mousedown",(e)=>{
 
     mouse.x = (e.clientX/innerWidth)*2-1;
@@ -113,52 +116,51 @@ window.addEventListener("mousedown",(e)=>{
     const z = Math.round(selected.position.z / spacing);
 
     active = [];
-    axis = null;
 
     for(let c of cubies){
         const cx = Math.round(c.position.x / spacing);
         const cy = Math.round(c.position.y / spacing);
         const cz = Math.round(c.position.z / spacing);
 
-        if (Math.abs(faceNormal.x) === 1 && cx === x) {
-            active.push(c);
-            pivot.attach(c);
-        }
-        else if (Math.abs(faceNormal.y) === 1 && cy === y) {
-            active.push(c);
-            pivot.attach(c);
-        }
-        else if (Math.abs(faceNormal.z) === 1 && cz === z) {
+        if(
+            (faceNormal.x && cx === x) ||
+            (faceNormal.y && cy === y) ||
+            (faceNormal.z && cz === z)
+        ){
             active.push(c);
             pivot.attach(c);
         }
     }
 
-    axis = Math.abs(faceNormal.x) ? "y"
-         : Math.abs(faceNormal.y) ? "x"
-         : "z";
-
     dragging = true;
 });
 
-// ---------------- MOUSE MOVE (FIXED: NO EXPLOSIVE SPEED) ----------------
+// ---------------- MOVE (NO DIAGONAL SPIN BUG FIXED HERE) ----------------
 window.addEventListener("mousemove",(e)=>{
     if(!dragging || !pivot) return;
 
     const drag = getDragVector(e);
 
-    // FIX: scale DOWN heavily and avoid runaway rotation
-    const amount = drag.length() * 0.0005;
+    // lock axis based on face normal
+    if(!axis){
+        if(Math.abs(faceNormal.x)) axis = "y";
+        else if(Math.abs(faceNormal.y)) axis = "x";
+        else axis = "x";
+    }
 
+    const amount = drag.length() * 0.002;
+
+    // direction fix using sign of dominant axis
     const sign = (drag.x + drag.y) > 0 ? 1 : -1;
 
     pivot.rotation[axis] = amount * sign;
 });
 
-// ---------------- MOUSE UP ----------------
+// ---------------- RELEASE ----------------
 window.addEventListener("mouseup",()=>{
     if(!dragging || !pivot) return;
 
+    // snap clean 90°
     const snap = Math.round(pivot.rotation[axis] / (Math.PI/2)) * (Math.PI/2);
     pivot.rotation[axis] = snap;
 
