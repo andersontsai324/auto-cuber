@@ -7,7 +7,7 @@
         body {
             margin: 0;
             overflow: hidden;
-            background: #e9ecef;
+            background: #e9ecef; /* light background restored */
         }
         canvas { display: block; }
     </style>
@@ -19,6 +19,7 @@
 
 <script>
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9ecef);
 
 const camera = new THREE.PerspectiveCamera(
     75,
@@ -36,27 +37,24 @@ document.body.appendChild(renderer.domElement);
 const spacing = 1.05;
 const cubies = [];
 
-// -------------------- CREATE CUBIES --------------------
+// -------------------- CUBES --------------------
 function createCubie(x, y, z) {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
 
     const materials = [
-        new THREE.MeshBasicMaterial({ color: 0xff0000 }), // right
-        new THREE.MeshBasicMaterial({ color: 0xffa500 }), // left
-        new THREE.MeshBasicMaterial({ color: 0xffffff }), // top
-        new THREE.MeshBasicMaterial({ color: 0xffff00 }), // bottom
-        new THREE.MeshBasicMaterial({ color: 0x00ff00 }), // front
-        new THREE.MeshBasicMaterial({ color: 0x0000ff })  // back
+        new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+        new THREE.MeshBasicMaterial({ color: 0xffa500 }),
+        new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        new THREE.MeshBasicMaterial({ color: 0xffff00 }),
+        new THREE.MeshBasicMaterial({ color: 0x00ff00 }),
+        new THREE.MeshBasicMaterial({ color: 0x0000ff })
     ];
 
     const cube = new THREE.Mesh(geometry, materials);
-
     cube.position.set(x * spacing, y * spacing, z * spacing);
-
     return cube;
 }
 
-// build cube
 for (let x = -1; x <= 1; x++) {
     for (let y = -1; y <= 1; y++) {
         for (let z = -1; z <= 1; z++) {
@@ -65,6 +63,60 @@ for (let x = -1; x <= 1; x++) {
             cubies.push(c);
         }
     }
+}
+
+// -------------------- MOUSE INPUT --------------------
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+let isDragging = false;
+let startPoint = null;
+let selectedCubie = null;
+
+window.addEventListener("mousedown", (e) => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    const hits = raycaster.intersectObjects(cubies);
+    if (hits.length > 0) {
+        selectedCubie = hits[0].object;
+        startPoint = { x: e.clientX, y: e.clientY };
+        isDragging = true;
+    }
+});
+
+window.addEventListener("mouseup", (e) => {
+    if (!isDragging || !selectedCubie) return;
+
+    const dx = e.clientX - startPoint.x;
+    const dy = e.clientY - startPoint.y;
+
+    // decide axis of motion
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    const threshold = 10;
+    if (absX < threshold && absY < threshold) {
+        isDragging = false;
+        return;
+    }
+
+    const face = getFace(selectedCubie);
+    handleSwipe(face, dx, dy);
+
+    isDragging = false;
+    selectedCubie = null;
+});
+
+// -------------------- FACE DETECTION --------------------
+function getFace(cube) {
+    const x = Math.round(cube.position.x / spacing);
+    const y = Math.round(cube.position.y / spacing);
+    const z = Math.round(cube.position.z / spacing);
+
+    return { x, y, z };
 }
 
 // -------------------- ROTATION CORE --------------------
@@ -77,36 +129,32 @@ function rotateLayer(axis, value, angle) {
     const pivot = new THREE.Object3D();
     scene.add(pivot);
 
-    const toRotate = [];
+    const moving = [];
 
-    // pick cubies in layer
     for (let c of cubies) {
         if (Math.abs(c.position[axis] - value * spacing) < 0.01) {
-            toRotate.push(c);
+            moving.push(c);
             pivot.add(c);
         }
     }
 
-    const duration = 250;
+    const duration = 200;
     const start = performance.now();
 
-    function animateRotation(time) {
+    function animate(time) {
         let t = (time - start) / duration;
         if (t > 1) t = 1;
 
         pivot.rotation[axis] = angle * t;
 
         if (t < 1) {
-            requestAnimationFrame(animateRotation);
+            requestAnimationFrame(animate);
         } else {
-            // finalize
             pivot.rotation[axis] = angle;
 
-            // detach back to scene
-            for (let c of toRotate) {
+            for (let c of moving) {
                 scene.add(c);
 
-                // round position to avoid floating errors
                 c.position.x = Math.round(c.position.x / spacing) * spacing;
                 c.position.y = Math.round(c.position.y / spacing) * spacing;
                 c.position.z = Math.round(c.position.z / spacing) * spacing;
@@ -123,26 +171,50 @@ function rotateLayer(axis, value, angle) {
         renderer.render(scene, camera);
     }
 
-    requestAnimationFrame(animateRotation);
+    requestAnimationFrame(animate);
 }
 
-// -------------------- KEY CONTROLS --------------------
-window.addEventListener("keydown", (e) => {
-    switch (e.key.toUpperCase()) {
-        case "R":
-            rotateLayer("x", 1, -Math.PI / 2);
-            break;
-        case "L":
-            rotateLayer("x", -1, Math.PI / 2);
-            break;
-        case "U":
-            rotateLayer("y", 1, -Math.PI / 2);
-            break;
-        case "D":
-            rotateLayer("y", -1, Math.PI / 2);
-            break;
+// -------------------- SWIPE LOGIC --------------------
+function handleSwipe(face, dx, dy) {
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    // RIGHT FACE (x = +1)
+    if (face.x === 1) {
+        if (absX > absY) {
+            rotateLayer("x", 1, dx > 0 ? -Math.PI/2 : Math.PI/2);
+        } else {
+            rotateLayer("y", dy > 0 ? -Math.PI/2 : Math.PI/2);
+        }
     }
-});
+
+    // LEFT FACE (x = -1)
+    if (face.x === -1) {
+        if (absX > absY) {
+            rotateLayer("x", -1, dx > 0 ? Math.PI/2 : -Math.PI/2);
+        } else {
+            rotateLayer("y", dy > 0 ? -Math.PI/2 : Math.PI/2);
+        }
+    }
+
+    // TOP / BOTTOM simplified
+    if (face.y === 1) {
+        rotateLayer("y", 1, dx > 0 ? -Math.PI/2 : Math.PI/2);
+    }
+
+    if (face.y === -1) {
+        rotateLayer("y", -1, dx > 0 ? Math.PI/2 : -Math.PI/2);
+    }
+
+    // FRONT / BACK simplified (z)
+    if (face.z === 1) {
+        rotateLayer("z", 1, dx > 0 ? -Math.PI/2 : Math.PI/2);
+    }
+
+    if (face.z === -1) {
+        rotateLayer("z", -1, dx > 0 ? Math.PI/2 : -Math.PI/2);
+    }
+}
 
 // -------------------- RENDER LOOP --------------------
 function animate() {
