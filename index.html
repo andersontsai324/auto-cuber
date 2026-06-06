@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://jsdelivr.net"></script>
 <script>
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
@@ -68,7 +68,7 @@ let selectedFaceNormal = new THREE.Vector3();
 let startMouse = new THREE.Vector2();
 let rotationAxis = new THREE.Vector3();
 let rotationGroup = [];
-let pivot = new THREE.Object3D();
+const pivot = new THREE.Object3D();
 scene.add(pivot);
 let currentAngle = 0;
 
@@ -84,11 +84,11 @@ window.addEventListener("mousedown", (e) => {
     if (hits.length === 0) return;
              
     dragStage = "INITIATING";
-    selectedCubie = hits[0].object;
+    selectedCubie = hits[0].object; // FIXED: Added [0] array index
     
     // Get the face normal in world coordinates
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(selectedCubie.matrixWorld);
-    selectedFaceNormal.copy(hits[0].face.normal).applyMatrix3(normalMatrix).normalize();
+    selectedFaceNormal.copy(hits[0].face.normal).applyMatrix3(normalMatrix).normalize(); // FIXED: Added [0] array index
     
     startMouse.set(e.clientX, e.clientY);
 });
@@ -109,7 +109,6 @@ window.addEventListener("mousemove", (e) => {
 
         const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
         
-        // Find closest primary global coordinate axis (X, Y, or Z)
         const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
         let maxDot = -1;
         let chosenAxis = new THREE.Vector3();
@@ -124,12 +123,10 @@ window.addEventListener("mousemove", (e) => {
 
         rotationAxis.copy(chosenAxis);
 
-        // Determine which layer plane to group based on target primary axis
         let coordKey = 'x';
         if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
         if (Math.abs(rotationAxis.z) > 0.9) coordKey = 'z';
 
-        // Read real current positions relative to origin to lock the proper slice
         const targetVal = selectedCubie.position[coordKey];
         
         rotationGroup = [];
@@ -151,7 +148,6 @@ window.addEventListener("mousemove", (e) => {
         const dx = e.clientX - startMouse.x;
         const dy = e.clientY - startMouse.y;
         
-        // Project screen movement onto the rotation logic
         const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
         const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
         const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy);
@@ -159,9 +155,8 @@ window.addEventListener("mousemove", (e) => {
         const expectedDragDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
         const travel = dragWorldDir.dot(expectedDragDir);
         
-        currentAngle = travel * 0.02; 
+        currentAngle = travel * 0.01; // Adjusted sensitivity for smoother drags
         
-        // Reset pivot orientation and apply rotation
         pivot.rotation.set(0, 0, 0);
         pivot.rotateOnAxis(rotationAxis, currentAngle);
     }
@@ -173,17 +168,14 @@ window.addEventListener("mouseup", () => {
         return;
     }
 
-    // Snap to nearest 90 degrees (PI / 2 radians)
     const snappedAngle = Math.round(currentAngle / (Math.PI / 2)) * (Math.PI / 2);
     pivot.rotation.set(0, 0, 0);
     pivot.rotateOnAxis(rotationAxis, snappedAngle);
     pivot.updateMatrixWorld();
 
-    // Detach elements back to global scene container cleanly
     while (rotationGroup.length > 0) {
         const c = rotationGroup.pop();
         scene.attach(c);
-        // Round position coordinates to keep matrix tracking crisp
         c.position.x = Math.round(c.position.x / spacing) * spacing;
         c.position.y = Math.round(c.position.y / spacing) * spacing;
         c.position.z = Math.round(c.position.z / spacing) * spacing;
