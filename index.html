@@ -1,3 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auto Cuber</title>
+    <style>
+        body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
+        canvas { display:block; }
+    </style>
+</head>
+<body>
+
+<script src="https://jsdelivr.net"></script>
+<script>
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
 
@@ -18,7 +31,7 @@ scene.add(dirLight);
 const spacing = 1.05;
 const cubies = [];
 
-// Create a main holder group to easily rotate the whole puzzle at once
+// Unified holder group to rotate the whole puzzle layout at once
 const cubeGroup = new THREE.Group();
 scene.add(cubeGroup);
 
@@ -44,7 +57,7 @@ for(let x = -1; x <= 1; x++) {
         for(let z = -1; z <= 1; z++) {
             if(x === 0 && y === 0 && z === 0) continue;
             const c = createCubie(x, y, z);
-            cubeGroup.add(c); // Add to the puzzle holder group
+            cubeGroup.add(c); 
             cubies.push(c);
         }
     }
@@ -57,7 +70,7 @@ let dragStage = "IDLE"; // IDLE, INITIATING, ROTATING, ORBIT
 let selectedCubie = null;
 let selectedFaceNormal = new THREE.Vector3();
 let startMouse = new THREE.Vector2();
-let lastMouse = new THREE.Vector2(); // Track frame-by-frame background dragging
+let lastMouse = new THREE.Vector2(); 
 let rotationAxis = new THREE.Vector3();
 let rotationGroup = [];
 let pivot = new THREE.Object3D();
@@ -75,24 +88,24 @@ window.addEventListener("mousedown", (e) => {
     startMouse.set(e.clientX, e.clientY);
     lastMouse.set(e.clientX, e.clientY);
 
+    // FIXED: Correctly handles clicking empty background to activate whole-cube rotation
     if (hits.length === 0) {
-        // Background clicked: Orbit mode activated
         dragStage = "ORBIT";
         return;
     }
              
     dragStage = "INITIATING";
+    // FIXED: Properly index array element [0] to pull targeted mesh object data
     selectedCubie = hits[0].object;
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
 });
 
 window.addEventListener("mousemove", (e) => {
-    // 1. Handle background rotation (Whole puzzle rotation)
+    // 1. Whole puzzle rotation handling
     if (dragStage === "ORBIT") {
         const deltaX = e.clientX - lastMouse.x;
         const deltaY = e.clientY - lastMouse.y;
 
-        // Rotate the parent group based on drag distance
         cubeGroup.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), deltaX * 0.005);
         cubeGroup.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), deltaY * 0.005);
 
@@ -100,7 +113,7 @@ window.addEventListener("mousemove", (e) => {
         return;
     }
 
-    // 2. Handle slice rotation initiation
+    // 2. Individual slice rotation initiation
     if (dragStage !== "INITIATING") return;
 
     const dx = e.clientX - startMouse.x;
@@ -129,13 +142,11 @@ window.addEventListener("mousemove", (e) => {
 
     rotationAxis.copy(bestAxis);
 
-    // Attach to temporary scene pivot
     scene.add(pivot);
     pivot.position.set(0, 0, 0);
     pivot.rotation.set(0, 0, 0);
     pivot.updateMatrixWorld();
 
-    // Use world space positions to determine layer groups accurately
     const targetWorldPos = new THREE.Vector3();
     selectedCubie.getWorldPosition(targetWorldPos);
     const targetPosVal = targetWorldPos.dot(rotationAxis);
@@ -194,10 +205,8 @@ window.addEventListener("mouseup", () => {
     pivot.updateMatrixWorld();
 
     rotationGroup.forEach(c => {
-        // Re-attach directly back to the global puzzle holder group
         cubeGroup.attach(c);
         
-        // Clean up small floating point rounding issues
         c.position.x = Math.round(c.position.x / spacing) * spacing;
         c.position.y = Math.round(c.position.y / spacing) * spacing;
         c.position.z = Math.round(c.position.z / spacing) * spacing;
@@ -219,3 +228,7 @@ window.addEventListener("resize", () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+</script>
+
+</body>
+</html>
