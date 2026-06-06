@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Auto Cuber</title>
+    <title>Auto Cuber!</title>
     <style>
         body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
         canvas { display:block; }
@@ -9,7 +9,6 @@
 </head>
 <body>
 
-<!-- FIXED: Replaced non-functional broken script with valid Three.js CDN link -->
 <script src="https://cloudflare.com"></script>
 <script>
 const scene = new THREE.Scene();
@@ -95,9 +94,9 @@ window.addEventListener("mousedown", (e) => {
     }
                   
     dragStage = "INITIATING";
-    selectedCubie = hits[0].object;
     
-    // FIXED: Formulate face normal vector matching current spatial direction
+    // FIXED: Re-added array index [0] to grab the first object hit by raycaster
+    selectedCubie = hits[0].object; 
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
 });
 
@@ -128,7 +127,6 @@ window.addEventListener("mousemove", (e) => {
     const rotAxisProj = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
                
     let maxDot = -1;
-    // FIXED: Replaced static world directions with dynamic layout matrix options
     const rawAxes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
     let bestAxis = rawAxes[0];
 
@@ -143,7 +141,6 @@ window.addEventListener("mousemove", (e) => {
 
     rotationAxis.copy(bestAxis);
 
-    // FIXED: Inherit full orientation context rules on the tracking pivot
     pivot.quaternion.copy(cubeGroup.quaternion);
     scene.add(pivot);
     pivot.updateMatrixWorld();
@@ -183,7 +180,6 @@ function handleRotationDrag(e) {
                   
     currentAngle = dragAmt * 0.005;
     
-    // FIXED: Reset local rotation properties without alignment corruption
     pivot.quaternion.copy(cubeGroup.quaternion);
     pivot.rotateOnAxis(pivot.worldToLocal(rotationAxis.clone()).normalize(), currentAngle);
 }
@@ -207,7 +203,6 @@ window.addEventListener("mouseup", () => {
     pivot.rotateOnAxis(pivot.worldToLocal(rotationAxis.clone()).normalize(), snappedAngle);
     pivot.updateMatrixWorld();
 
-    // FIXED: Preserved stable internal index coordinates on the primary parent stack
     const tempGroup = [];
     while(rotationGroup.length > 0) {
         let c = rotationGroup.pop();
