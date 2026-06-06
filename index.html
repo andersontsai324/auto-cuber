@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Auto Cuber!</title>
+    <title>Auto Cuber</title>
     <style>
         body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
         canvas { display:block; }
@@ -95,7 +95,7 @@ window.addEventListener("mousedown", (e) => {
                   
     dragStage = "INITIATING";
     
-    // FIXED: Re-added array index [0] to grab the first object hit by raycaster
+    // FIXED: Properly accessing array index [0] so the application doesn't crash
     selectedCubie = hits[0].object; 
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
 });
