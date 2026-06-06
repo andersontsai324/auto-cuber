@@ -9,7 +9,8 @@
 </head>
 <body>
 
-<script src="https://jsdelivr.net"></script>
+<!-- FIXED: Replaced non-functional broken script with valid Three.js CDN link -->
+<script src="https://cloudflare.com"></script>
 <script>
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
@@ -31,7 +32,6 @@ scene.add(dirLight);
 const spacing = 1.05;
 const cubies = [];
 
-// Unified holder group to rotate the whole puzzle layout at once
 const cubeGroup = new THREE.Group();
 scene.add(cubeGroup);
 
@@ -45,7 +45,7 @@ function createCubie(x, y, z) {
         new THREE.MeshLambertMaterial({color: 0x00ff00}), // Front (Green)
         new THREE.MeshLambertMaterial({color: 0x0000ff})  // Back (Blue)
     ];
-             
+                  
     const mesh = new THREE.Mesh(geo, mats);
     mesh.position.set(x * spacing, y * spacing, z * spacing);
     mesh.userData = { x, y, z };
@@ -57,7 +57,7 @@ for(let x = -1; x <= 1; x++) {
         for(let z = -1; z <= 1; z++) {
             if(x === 0 && y === 0 && z === 0) continue;
             const c = createCubie(x, y, z);
-            cubeGroup.add(c); 
+            cubeGroup.add(c);
             cubies.push(c);
         }
     }
@@ -66,11 +66,12 @@ for(let x = -1; x <= 1; x++) {
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-let dragStage = "IDLE"; // IDLE, INITIATING, ROTATING, ORBIT
+let dragStage = "IDLE"; 
 let selectedCubie = null;
 let selectedFaceNormal = new THREE.Vector3();
 let startMouse = new THREE.Vector2();
-let lastMouse = new THREE.Vector2(); 
+let lastMouse = new THREE.Vector2();
+
 let rotationAxis = new THREE.Vector3();
 let rotationGroup = [];
 let pivot = new THREE.Object3D();
@@ -81,27 +82,26 @@ window.addEventListener("mousedown", (e) => {
 
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-             
+                  
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(cubies);
-             
+                  
     startMouse.set(e.clientX, e.clientY);
     lastMouse.set(e.clientX, e.clientY);
 
-    // FIXED: Correctly handles clicking empty background to activate whole-cube rotation
     if (hits.length === 0) {
         dragStage = "ORBIT";
         return;
     }
-             
+                  
     dragStage = "INITIATING";
-    // FIXED: Properly index array element [0] to pull targeted mesh object data
     selectedCubie = hits[0].object;
+    
+    // FIXED: Formulate face normal vector matching current spatial direction
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
 });
 
 window.addEventListener("mousemove", (e) => {
-    // 1. Whole puzzle rotation handling
     if (dragStage === "ORBIT") {
         const deltaX = e.clientX - lastMouse.x;
         const deltaY = e.clientY - lastMouse.y;
@@ -113,38 +113,39 @@ window.addEventListener("mousemove", (e) => {
         return;
     }
 
-    // 2. Individual slice rotation initiation
     if (dragStage !== "INITIATING") return;
 
     const dx = e.clientX - startMouse.x;
     const dy = e.clientY - startMouse.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-             
+                  
     if (distance < 10) return;
-           
+                
     const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
     const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
     const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy).normalize();
 
     const rotAxisProj = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
-          
+               
     let maxDot = -1;
-    const worldAxes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
-    let bestAxis = worldAxes[0];
+    // FIXED: Replaced static world directions with dynamic layout matrix options
+    const rawAxes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
+    let bestAxis = rawAxes[0];
 
-    worldAxes.forEach(axis => {
-        let dot = Math.abs(rotAxisProj.dot(axis));
+    rawAxes.forEach(axis => {
+        let transformedAxis = axis.clone().applyQuaternion(cubeGroup.quaternion).normalize();
+        let dot = Math.abs(rotAxisProj.dot(transformedAxis));
         if (dot > maxDot) {
             maxDot = dot;
-            bestAxis = axis;
+            bestAxis = transformedAxis;
         }
     });
 
     rotationAxis.copy(bestAxis);
 
+    // FIXED: Inherit full orientation context rules on the tracking pivot
+    pivot.quaternion.copy(cubeGroup.quaternion);
     scene.add(pivot);
-    pivot.position.set(0, 0, 0);
-    pivot.rotation.set(0, 0, 0);
     pivot.updateMatrixWorld();
 
     const targetWorldPos = new THREE.Vector3();
@@ -179,15 +180,17 @@ function handleRotationDrag(e) {
 
     const tangentDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
     const dragAmt = dragWorldDir.dot(tangentDir);
-             
+                  
     currentAngle = dragAmt * 0.005;
-    pivot.rotation.set(0,0,0);
-    pivot.rotateOnAxis(rotationAxis, currentAngle);
+    
+    // FIXED: Reset local rotation properties without alignment corruption
+    pivot.quaternion.copy(cubeGroup.quaternion);
+    pivot.rotateOnAxis(pivot.worldToLocal(rotationAxis.clone()).normalize(), currentAngle);
 }
 
 window.addEventListener("mouseup", () => {
     window.removeEventListener("mousemove", handleRotationDrag);
-         
+              
     if (dragStage === "ORBIT") {
         dragStage = "IDLE";
         return;
@@ -199,21 +202,26 @@ window.addEventListener("mouseup", () => {
     }
 
     const snappedAngle = Math.round(currentAngle / (Math.PI / 2)) * (Math.PI / 2);
-             
-    pivot.rotation.set(0,0,0);
-    pivot.rotateOnAxis(rotationAxis, snappedAngle);
+                  
+    pivot.quaternion.copy(cubeGroup.quaternion);
+    pivot.rotateOnAxis(pivot.worldToLocal(rotationAxis.clone()).normalize(), snappedAngle);
     pivot.updateMatrixWorld();
 
-    rotationGroup.forEach(c => {
+    // FIXED: Preserved stable internal index coordinates on the primary parent stack
+    const tempGroup = [];
+    while(rotationGroup.length > 0) {
+        let c = rotationGroup.pop();
         cubeGroup.attach(c);
-        
+        tempGroup.push(c);
+    }
+
+    tempGroup.forEach(c => {
         c.position.x = Math.round(c.position.x / spacing) * spacing;
         c.position.y = Math.round(c.position.y / spacing) * spacing;
         c.position.z = Math.round(c.position.z / spacing) * spacing;
     });
 
     scene.remove(pivot);
-    rotationGroup = [];
     dragStage = "IDLE";
 });
 
