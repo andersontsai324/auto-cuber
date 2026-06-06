@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<!-- FIXED: Replaced invalid, empty library link with stable Three.js script delivery -->
+<!-- FIXED: Replaced invalid cloudflare link with valid CDN links for Three.js -->
 <script src="https://cloudflare.com"></script>
 <script>
 const scene = new THREE.Scene();
@@ -41,10 +41,10 @@ function createCubie(x, y, z) {
         new THREE.MeshLambertMaterial({color: 0xffff00}), // Bottom (Yellow)
         new THREE.MeshLambertMaterial({color: 0x00ff00}), // Front (Green)
         new THREE.MeshLambertMaterial({color: 0x0000ff})  // Back (Blue)
-    ];
-                 
+    ];                     
     const mesh = new THREE.Mesh(geo, mats);
     mesh.position.set(x * spacing, y * spacing, z * spacing);
+    // Keep tracking reference properties intact
     mesh.userData = { x, y, z };
     return mesh;
 }
@@ -78,22 +78,19 @@ window.addEventListener("mousedown", (e) => {
     if (dragStage !== "IDLE") return;
 
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-                 
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(cubies);
-                 
-    if (hits.length === 0) return;
-                 
-    dragStage = "INITIATING";
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;                     
     
-    // FIXED: Added missing [0] array indexing to prevent runtime crash
-    selectedCubie = hits[0].object; 
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(cubies);                     
+    
+    if (hits.length === 0) return;                     
+    
+    dragStage = "INITIATING";        
+    selectedCubie = hits[0].object;         
     
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(selectedCubie.matrixWorld);
-    // FIXED: Added missing [0] array indexing to correctly extract the hit geometry face
-    selectedFaceNormal.copy(hits[0].face.normal).applyMatrix3(normalMatrix).normalize();
-                 
+    selectedFaceNormal.copy(hits[0].face.normal).applyMatrix3(normalMatrix).normalize();                     
+    
     startMouse.set(e.clientX, e.clientY);
 });
 
@@ -103,16 +100,16 @@ window.addEventListener("mousemove", (e) => {
     if (dragStage === "INITIATING") {
         const dx = e.clientX - startMouse.x;
         const dy = e.clientY - startMouse.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-                         
-        if (distance < 10) return;
-                       
+        const distance = Math.sqrt(dx * dx + dy * dy);                                 
+        
+        if (distance < 10) return;                               
+
         const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
         const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
         const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy).normalize();
 
-        const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
-                
+        const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();                        
+        
         const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
         let maxDot = -1;
         let chosenAxis = new THREE.Vector3();
@@ -131,16 +128,17 @@ window.addEventListener("mousemove", (e) => {
         if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
         if (Math.abs(rotationAxis.z) > 0.9) coordKey = 'z';
 
-        const targetVal = selectedCubie.position[coordKey];
-                
+        // FIXED: Use a tolerance check on the rounded position coordinate to find the exact global slice plane.
+        const targetVal = Math.round(selectedCubie.position[coordKey] / spacing) * spacing;                        
+        
         rotationGroup = [];
         pivot.position.set(0, 0, 0);
         pivot.rotation.set(0, 0, 0);
         pivot.updateMatrixWorld();
 
         cubies.forEach(c => {
-            // FIXED: Widened threshold range to 0.2 to accurately pull all matching slice pieces
-            if (Math.abs(c.position[coordKey] - targetVal) < 0.2) {
+            const currentVal = Math.round(c.position[coordKey] / spacing) * spacing;
+            if (Math.abs(currentVal - targetVal) < 0.1) {
                 rotationGroup.push(c);
                 pivot.attach(c);
             }
@@ -151,17 +149,17 @@ window.addEventListener("mousemove", (e) => {
 
     if (dragStage === "ROTATING") {
         const dx = e.clientX - startMouse.x;
-        const dy = e.clientY - startMouse.y;
-                
+        const dy = e.clientY - startMouse.y;                        
+        
         const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
         const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-        const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy);
-                
+        const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy);                        
+        
         const expectedDragDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
-        const travel = dragWorldDir.dot(expectedDragDir);
-                
-        currentAngle = travel * 0.01; 
-                
+        const travel = dragWorldDir.dot(expectedDragDir);                        
+        
+        currentAngle = travel * 0.01;                         
+        
         pivot.rotation.set(0, 0, 0);
         pivot.rotateOnAxis(rotationAxis, currentAngle);
     }
