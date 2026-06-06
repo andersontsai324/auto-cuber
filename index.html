@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Auto Cuber!</title>
+    <title>Auto Cuber</title>
     <style>
         body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
         canvas { display:block; }
@@ -9,17 +9,16 @@
 </head>
 <body>
 
-<!-- FIXED: Correct CDN configuration to fetch Three.js core successfully -->
-<script src="https://cloudflare.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(4, 4, 6);
 camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({antialias:true});
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -62,132 +61,129 @@ for(let x = -1; x <= 1; x++) {
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-let dragStage = "IDLE";
-
+let dragStage = "IDLE"; 
 let selectedCubie = null;
 let selectedFaceNormal = new THREE.Vector3();
 let startMouse = new THREE.Vector2();
 let rotationAxis = new THREE.Vector3();
 let rotationGroup = [];
-const pivot = new THREE.Object3D();
-scene.add(pivot);
+let pivot = new THREE.Object3D();
 let currentAngle = 0;
 
 window.addEventListener("mousedown", (e) => {
     if (dragStage !== "IDLE") return;
 
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;                     
-    
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(cubies);                     
-    
-    if (hits.length === 0) return;                     
-    
-    dragStage = "INITIATING";        
-    // FIXED: Corrected array syntax tracking to extract target index 0 from raycast selection
-    selectedCubie = hits[0].object;         
-    
-    const normalMatrix = new THREE.Matrix3().getNormalMatrix(selectedCubie.matrixWorld);
-    // FIXED: Pointed to target index 0 to parse geometry normals dynamically 
-    selectedFaceNormal.copy(hits[0].face.normal).applyMatrix3(normalMatrix).normalize();                     
-    
+    const hits = raycaster.intersectObjects(cubies);
+
+    if (hits.length === 0) return;
+
+    dragStage = "INITIATING";
+    selectedCubie = hits[0].object;
+    selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
+
     startMouse.set(e.clientX, e.clientY);
 });
 
 window.addEventListener("mousemove", (e) => {
-    if (dragStage === "IDLE") return;
+    if (dragStage !== "INITIATING") return;
 
-    if (dragStage === "INITIATING") {
-        const dx = e.clientX - startMouse.x;
-        const dy = e.clientY - startMouse.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);                                 
-        
-        if (distance < 10) return;                               
+    const dx = e.clientX - startMouse.x;
+    const dy = e.clientY - startMouse.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
 
-        const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
-        const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-        const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy).normalize();
+    if (distance < 10) return;
 
-        const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();                        
-        
-        const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
-        let maxDot = -1;
-        let chosenAxis = new THREE.Vector3();
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+    const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy).normalize();
 
-        axes.forEach(axis => {
-            const dot = Math.abs(rawRotAxis.dot(axis));
-            if (dot > maxDot) {
-                maxDot = dot;
-                chosenAxis.copy(axis).multiplyScalar(Math.sign(rawRotAxis.dot(axis)));
-            }
-        });
+    const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
 
-        rotationAxis.copy(chosenAxis);
+    const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
+    let maxDot = -1;
+    let bestAxis = new THREE.Vector3();
 
-        let coordKey = 'x';
-        if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
-        if (Math.abs(rotationAxis.z) > 0.9) coordKey = 'z';
+    axes.forEach(axis => {
+        const dot = Math.abs(rawRotAxis.dot(axis));
+        if (dot > maxDot) {
+            maxDot = dot;
+            bestAxis.copy(axis).multiplyScalar(Math.sign(rawRotAxis.dot(axis)));
+        }
+    });
 
-        // FIXED: Swapped raw positions for standardized spacing math to prevent missing pieces
-        const targetVal = Math.round(selectedCubie.position[coordKey] / spacing) * spacing;                        
-        
-        rotationGroup = [];
-        pivot.position.set(0, 0, 0);
-        pivot.rotation.set(0, 0, 0);
-        pivot.updateMatrixWorld();
+    rotationAxis.copy(bestAxis);
 
-        cubies.forEach(c => {
-            const currentVal = Math.round(c.position[coordKey] / spacing) * spacing;
-            if (Math.abs(currentVal - targetVal) < 0.1) {
-                rotationGroup.push(c);
-                pivot.attach(c);
-            }
-        });
+    scene.add(pivot);
+    pivot.position.set(0, 0, 0);
+    pivot.rotation.set(0, 0, 0);
+    pivot.updateMatrixWorld();
 
-        dragStage = "ROTATING";
-    }
+    let coordKey = 'x';
+    if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
+    if (Math.abs(rotationAxis.z) > 0.9) coordKey = 'z';
 
-    if (dragStage === "ROTATING") {
-        const dx = e.clientX - startMouse.x;
-        const dy = e.clientY - startMouse.y;                        
-        
-        const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
-        const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
-        const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy);                        
-        
-        const expectedDragDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
-        const travel = dragWorldDir.dot(expectedDragDir);                        
-        
-        currentAngle = travel * 0.01;                         
-        
-        pivot.rotation.set(0, 0, 0);
-        pivot.rotateOnAxis(rotationAxis, currentAngle);
-    }
+    const targetVal = Math.round(selectedCubie.position[coordKey] / spacing) * spacing;
+
+    rotationGroup = [];
+    cubies.forEach(c => {
+        const currentVal = Math.round(c.position[coordKey] / spacing) * spacing;
+        if (Math.abs(currentVal - targetVal) < 0.1) {
+            rotationGroup.push(c);
+            pivot.attach(c);
+        }
+    });
+
+    currentAngle = 0;
+    dragStage = "ROTATING";
+    window.addEventListener("mousemove", handleRotationDrag);
 });
 
+function handleRotationDrag(e) {
+    if (dragStage !== "ROTATING") return;
+
+    const dx = e.clientX - startMouse.x;
+    const dy = e.clientY - startMouse.y;
+
+    const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+    const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+    const dragWorldDir = new THREE.Vector3().addScaledVector(camRight, dx).addScaledVector(camUp, -dy);
+
+    const tangentDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
+    const dragAmt = dragWorldDir.dot(tangentDir);
+
+    currentAngle = dragAmt * 0.005;
+    pivot.rotation.set(0,0,0);
+    pivot.rotateOnAxis(rotationAxis, currentAngle);
+}
+
 window.addEventListener("mouseup", () => {
+    window.removeEventListener("mousemove", handleRotationDrag);
+    
     if (dragStage !== "ROTATING") {
         dragStage = "IDLE";
         return;
     }
 
     const snappedAngle = Math.round(currentAngle / (Math.PI / 2)) * (Math.PI / 2);
-    pivot.rotation.set(0, 0, 0);
+
+    pivot.rotation.set(0,0,0);
     pivot.rotateOnAxis(rotationAxis, snappedAngle);
     pivot.updateMatrixWorld();
 
-    while (rotationGroup.length > 0) {
-        const c = rotationGroup.pop();
+    rotationGroup.forEach(c => {
         scene.attach(c);
         c.position.x = Math.round(c.position.x / spacing) * spacing;
         c.position.y = Math.round(c.position.y / spacing) * spacing;
         c.position.z = Math.round(c.position.z / spacing) * spacing;
-    }
+    });
 
-    currentAngle = 0;
+    scene.remove(pivot);
+    rotationGroup = [];
     dragStage = "IDLE";
-    selectedCubie = null;
 });
 
 function animate() {
