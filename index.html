@@ -15,12 +15,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-// Camera placed straight back so container rotations feel completely intuitive
 camera.position.set(0, 0, 8); 
 
-// --- 1. Global Container Setup ---
 const cubeContainer = new THREE.Group();
-cubeContainer.rotation.set(0.5, 0.6, 0); // Default isometric view angle
+cubeContainer.rotation.set(0.5, 0.6, 0); 
 scene.add(cubeContainer);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -57,19 +55,18 @@ for(let x = -1; x <= 1; x++) {
         for(let z = -1; z <= 1; z++) {
             if(x === 0 && y === 0 && z === 0) continue;
             const c = createCubie(x, y, z);
-            cubeContainer.add(c); // Add cubies to container instead of direct scene
+            cubeContainer.add(c); 
             cubies.push(c);
         }
     }
 }
 
-// --- 2. Keyboard Input Management ---
 const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
 window.addEventListener('keydown', (e) => {
     if (e.key in keys) {
         keys[e.key] = true;
-        e.preventDefault(); // Stop webpage scrolling layout shifts
+        e.preventDefault(); 
     }
 });
 
@@ -101,9 +98,8 @@ window.addEventListener("mousedown", (e) => {
     if (hits.length === 0) return;
 
     dragStage = "INITIATING";
-    selectedCubie = hits[0].object;
+    selectedCubie = hits[0].object; // FIXED: Changed hits.object to hits[0].object
     
-    // Track normal vector relative to the dynamic geometry's quaternion space
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
     startMouse.set(e.clientX, e.clientY);
 });
@@ -123,8 +119,6 @@ window.addEventListener("mousemove", (e) => {
 
     const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
 
-    // --- 3. Mathematical Translation Matrix Map ---
-    // Invert the world frame quaternion to turn a screen drag into a local block drag
     const containerInverted = cubeContainer.quaternion.clone().invert();
     rawRotAxis.applyQuaternion(containerInverted);
 
@@ -144,7 +138,7 @@ window.addEventListener("mousemove", (e) => {
 
     pivot.position.set(0, 0, 0);
     pivot.quaternion.set(0, 0, 0, 1);
-    cubeContainer.add(pivot); // Attach the selection pivot inside the container matrix
+    cubeContainer.add(pivot); 
 
     let coordKey = 'x';
     if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
@@ -215,7 +209,6 @@ window.addEventListener("mouseup", () => {
 function animate() {
     requestAnimationFrame(animate);
 
-    // --- 4. Frame-By-Frame Continuous Keyboard Rotation Engine ---
     const rotSpeed = 0.03;
     if (keys.ArrowLeft)  cubeContainer.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -rotSpeed);
     if (keys.ArrowRight) cubeContainer.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), rotSpeed);
