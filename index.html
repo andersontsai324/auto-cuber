@@ -9,7 +9,7 @@
 </head>
 <body>
 
-<script src="https://jsdelivr.net"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe9ecef);
@@ -83,11 +83,8 @@ window.addEventListener("mousedown", (e) => {
     if (hits.length === 0) return;
 
     dragStage = "INITIATING";
-    
-    // --- FIXED: THE BRACKETS ARE MANUALLY RESTORED AND LOCKED IN PLACE ---
     selectedCubie = hits[0].object;
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
-    
     startMouse.set(e.clientX, e.clientY);
 });
 
