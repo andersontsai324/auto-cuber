@@ -98,9 +98,11 @@ window.addEventListener("mousedown", (e) => {
     if (hits.length === 0) return;
 
     dragStage = "INITIATING";
-    selectedCubie = hits[0].object; // FIXED: Changed hits.object to hits[0].object
     
+    // --- BOTH PLACES ARE TRULY FIXED TO USE HITS[0] NOW ---
+    selectedCubie = hits[0].object; 
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
+    
     startMouse.set(e.clientX, e.clientY);
 });
 
