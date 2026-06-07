@@ -5,9 +5,29 @@
     <style>
         body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
         canvas { display:block; }
+        #controls {
+            position: fixed; top: 16px; left: 16px; z-index: 10;
+            display: flex; gap: 10px;
+        }
+        #controls button {
+            padding: 10px 18px;
+            font: 600 15px system-ui, -apple-system, sans-serif;
+            color: #fff; border: none; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        #scrambleBtn { background: #339af0; }
+        #scrambleBtn:hover { background: #1c7ed6; }
+        #solveBtn { background: #51cf66; }
+        #solveBtn:hover { background: #37b24d; }
+        #controls button:disabled { background: #adb5bd; cursor: default; }
     </style>
 </head>
 <body>
+
+<div id="controls">
+    <button id="scrambleBtn">Scramble</button>
+    <button id="solveBtn">Solve</button>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
@@ -76,7 +96,18 @@ const spherical = new THREE.Spherical();
 const ORBIT_SPEED = 0.01;
 const PHI_EPS = 0.05; // keeps the camera from flipping at the poles
 
+// --- Scramble / programmatic-turn state ---
+let isBusy = false;     // locks mouse input while the cube is auto-turning
+const turnQueue = [];   // pending { axis, layer, dir } moves to play out
+let activeTurn = null;  // the turn currently being animated
+const TURN_STEPS = 9;   // animation frames per 90° turn (smaller = faster)
+const history = [];     // every turn taken (scramble + manual), for the solver to reverse
+let pendingAxisKey = 'x'; // axis of the manual turn currently in progress
+let pendingLayer = 0;     // which layer (-1/0/1) that manual turn is on
+
 window.addEventListener("mousedown", (e) => {
+    if (e.target !== renderer.domElement) return; // ignore clicks on UI (e.g. the button)
+    if (isBusy) return;                           // ignore input while auto-turning
     if (dragStage !== "IDLE") return;
 
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -140,6 +171,9 @@ window.addEventListener("mousemove", (e) => {
 
     const targetVal = Math.round(selectedCubie.position[coordKey] / spacing) * spacing;
 
+    pendingAxisKey = coordKey;
+    pendingLayer = Math.round(targetVal / spacing);
+
     rotationGroup = [];
     cubies.forEach(c => {
         const currentVal = Math.round(c.position[coordKey] / spacing) * spacing;
@@ -197,6 +231,18 @@ window.addEventListener("mouseup", () => {
     scene.remove(pivot);
     rotationGroup = [];
     dragStage = "IDLE";
+
+    // Record this manual turn so the solver can undo it later.
+    // Express it as quarter turns about the POSITIVE axis (matching the turn engine).
+    const s = Math.sign(rotationAxis[pendingAxisKey]) || 1;
+    const n = Math.round(snappedAngle * s / (Math.PI / 2)); // signed # of quarter turns
+    if (n !== 0) {
+        const dir = n > 0 ? 1 : -1;
+        for (let i = 0; i < Math.abs(n); i++) {
+            history.push({ axis: pendingAxisKey, layer: pendingLayer, dir });
+        }
+        refreshButtons();
+    }
 });
 
 function handleOrbitDrag(e) {
@@ -214,8 +260,126 @@ function handleOrbitDrag(e) {
     camera.lookAt(0, 0, 0);
 }
 
+// Start the next queued turn (or release the lock when the queue is empty)
+function startNextTurn() {
+    if (activeTurn) return;
+    if (turnQueue.length === 0) {
+        isBusy = false;
+        refreshButtons();
+        return;
+    }
+
+    const move = turnQueue.shift();
+    const axisVec = new THREE.Vector3(
+        move.axis === 'x' ? 1 : 0,
+        move.axis === 'y' ? 1 : 0,
+        move.axis === 'z' ? 1 : 0
+    );
+
+    pivot.position.set(0, 0, 0);
+    pivot.rotation.set(0, 0, 0);
+    pivot.updateMatrixWorld();
+    scene.add(pivot);
+
+    // Grab every cubie sitting in the layer we're about to turn
+    const group = [];
+    cubies.forEach(c => {
+        const layerVal = Math.round(c.position[move.axis] / spacing);
+        if (layerVal === move.layer) {
+            group.push(c);
+            pivot.attach(c);
+        }
+    });
+
+    activeTurn = {
+        axisVec,
+        group,
+        target: move.dir * (Math.PI / 2),
+        done: 0,
+        stepMag: (Math.PI / 2) / TURN_STEPS
+    };
+}
+
+// Advance the current turn a little each frame; snap & finish when it hits 90°
+function updateTurn() {
+    if (!activeTurn) return;
+    const t = activeTurn;
+    const dir = Math.sign(t.target);
+
+    let next = t.done + dir * t.stepMag;
+    if (Math.abs(next) >= Math.abs(t.target)) next = t.target; // clamp to exact 90°
+    t.done = next;
+
+    pivot.rotation.set(0, 0, 0);
+    pivot.rotateOnAxis(t.axisVec, t.done);
+
+    if (t.done === t.target) {
+        pivot.updateMatrixWorld();
+        t.group.forEach(c => {
+            scene.attach(c);
+            c.position.x = Math.round(c.position.x / spacing) * spacing;
+            c.position.y = Math.round(c.position.y / spacing) * spacing;
+            c.position.z = Math.round(c.position.z / spacing) * spacing;
+        });
+        scene.remove(pivot);
+        pivot.rotation.set(0, 0, 0);
+        activeTurn = null;
+        startNextTurn(); // chain into the next queued turn
+    }
+}
+
+// Queue up a random sequence of legal turns. Any such sequence is always solvable.
+function scramble(moves = 25) {
+    if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
+    isBusy = true;
+    refreshButtons();
+
+    const axes = ['x', 'y', 'z'];
+    const layers = [-1, 0, 1];
+    let lastAxis = null;
+
+    for (let i = 0; i < moves; i++) {
+        let axis;
+        do { axis = axes[Math.floor(Math.random() * 3)]; } while (axis === lastAxis);
+        lastAxis = axis; // avoid back-to-back turns on the same axis (looks better)
+        const layer = layers[Math.floor(Math.random() * 3)];
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        const move = { axis, layer, dir };
+        turnQueue.push(move);
+        history.push(move); // remember it so Solve can reverse it
+    }
+    startNextTurn();
+}
+
+const scrambleBtn = document.getElementById('scrambleBtn');
+const solveBtn = document.getElementById('solveBtn');
+
+function refreshButtons() {
+    scrambleBtn.disabled = isBusy;
+    solveBtn.disabled = isBusy || history.length === 0;
+}
+
+// Solve by replaying every recorded turn in reverse order, each one inverted.
+// Undoing the full move history always returns the cube to solved.
+function solve() {
+    if (isBusy || dragStage !== "IDLE" || history.length === 0) return;
+    isBusy = true;
+    refreshButtons();
+    for (let i = history.length - 1; i >= 0; i--) {
+        const m = history[i];
+        turnQueue.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
+    }
+    history.length = 0; // the queued turns bring us back to solved
+    startNextTurn();
+}
+
+scrambleBtn.addEventListener('click', () => scramble(25));
+solveBtn.addEventListener('click', solve);
+refreshButtons();
+
 function animate() {
     requestAnimationFrame(animate);
+    updateTurn();
     renderer.render(scene, camera);
 }
 animate();
