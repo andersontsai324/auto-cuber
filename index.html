@@ -42,11 +42,14 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
 dirLight.position.set(10, 20, 15);
 scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.45);
+fillLight.position.set(-10, -5, -15); // lights the faces turned away from the main light
+scene.add(fillLight);
 
 const spacing = 1.05;
 const cubies = [];
@@ -354,15 +357,29 @@ function scramble(moves = 25) {
 const scrambleBtn = document.getElementById('scrambleBtn');
 const solveBtn = document.getElementById('solveBtn');
 
+// True when every cubie is back in its home position AND its home orientation,
+// regardless of how it got there. This is the real "is the cube solved?" test.
+function isSolved() {
+    return cubies.every(c => {
+        const inPlace =
+            Math.abs(c.position.x - c.userData.x * spacing) < 0.05 &&
+            Math.abs(c.position.y - c.userData.y * spacing) < 0.05 &&
+            Math.abs(c.position.z - c.userData.z * spacing) < 0.05;
+        // |quaternion.w| ~ 1 means the cubie is unrotated (its starting orientation)
+        const upright = Math.abs(c.quaternion.w) > 0.9999;
+        return inPlace && upright;
+    });
+}
+
 function refreshButtons() {
     scrambleBtn.disabled = isBusy;
-    solveBtn.disabled = isBusy || history.length === 0;
+    solveBtn.disabled = isBusy || isSolved();
 }
 
 // Solve by replaying every recorded turn in reverse order, each one inverted.
 // Undoing the full move history always returns the cube to solved.
 function solve() {
-    if (isBusy || dragStage !== "IDLE" || history.length === 0) return;
+    if (isBusy || dragStage !== "IDLE" || isSolved()) return;
     isBusy = true;
     refreshButtons();
     for (let i = history.length - 1; i >= 0; i--) {
