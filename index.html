@@ -7,11 +7,12 @@
         canvas { display:block; }
         #controls {
             position: fixed; top: 16px; left: 16px; z-index: 10;
-            display: flex; gap: 10px;
-        }
-        #controls button {
-            padding: 10px 18px;
+            display: flex; flex-direction: column; gap: 10px;
             font: 600 15px system-ui, -apple-system, sans-serif;
+        }
+        .btn-row { display: flex; gap: 10px; }
+        #controls button {
+            padding: 10px 18px; font: inherit;
             color: #fff; border: none; border-radius: 8px; cursor: pointer;
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
@@ -20,13 +21,34 @@
         #solveBtn { background: #51cf66; }
         #solveBtn:hover { background: #37b24d; }
         #controls button:disabled { background: #adb5bd; cursor: default; }
+        #difficulty {
+            padding: 8px 10px; font: inherit; color: #333;
+            background: #fff; border: none; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        #moves {
+            max-width: 320px; padding: 10px 12px; border-radius: 8px;
+            background: rgba(255,255,255,0.85); color: #333;
+            font: 500 14px ui-monospace, "SF Mono", Menlo, monospace;
+            line-height: 1.6; word-spacing: 4px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        #moves:empty { display: none; }
     </style>
 </head>
 <body>
 
 <div id="controls">
-    <button id="scrambleBtn">Scramble</button>
-    <button id="solveBtn">Solve</button>
+    <div class="btn-row">
+        <button id="scrambleBtn">Scramble</button>
+        <button id="solveBtn">Solve</button>
+    </div>
+    <select id="difficulty">
+        <option value="6">Easy</option>
+        <option value="16" selected>Medium</option>
+        <option value="30">Hard</option>
+    </select>
+    <div id="moves"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -331,31 +353,72 @@ function updateTurn() {
     }
 }
 
-// Queue up a random sequence of legal turns. Any such sequence is always solvable.
-function scramble(moves = 25) {
+// --- Move notation (standard cube notation: R, U, F', L2, etc.) ---
+// Map an internal turn {axis, layer} to its face letter.
+const FACE = {
+    'x1': 'R', 'x-1': 'L', 'x0': 'M',
+    'y1': 'U', 'y-1': 'D', 'y0': 'E',
+    'z1': 'F', 'z-1': 'B', 'z0': 'S'
+};
+// For each face, +1 = one clockwise (unprimed) turn given an internal dir.
+const FACE_SIGN = { R:-1, U:-1, F:-1, L:1, D:1, B:1, M:1, E:1, S:-1 };
+
+// Convert a list of {axis,layer,dir} moves into notation tokens like ["R","U'","F2"].
+function toNotation(moves) {
+    const tokens = [];
+    let i = 0;
+    while (i < moves.length) {
+        const face = FACE[`${moves[i].axis}${moves[i].layer}`];
+        let count = 0;
+        // collapse a run of turns on the same face into one token
+        while (i < moves.length && FACE[`${moves[i].axis}${moves[i].layer}`] === face) {
+            count += FACE_SIGN[face] * moves[i].dir;
+            i++;
+        }
+        const n = ((count % 4) + 4) % 4; // net quarter turns, 0..3
+        if (n === 1) tokens.push(face);
+        else if (n === 2) tokens.push(face + '2');
+        else if (n === 3) tokens.push(face + "'");
+        // n === 0: the turns cancelled out, emit nothing
+    }
+    return tokens;
+}
+
+function showMoves(label, moves) {
+    const seq = toNotation(moves);
+    movesEl.textContent = seq.length ? `${label}: ${seq.join('  ')}` : `${label}: (none)`;
+}
+
+// Queue a random scramble of `moves` outer-face turns. Always solvable.
+function scramble(moves) {
     if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
     isBusy = true;
     refreshButtons();
 
     const axes = ['x', 'y', 'z'];
-    const layers = [-1, 0, 1];
+    const layers = [-1, 1]; // outer faces only, so the notation reads like a real scramble
     let lastAxis = null;
+    const generated = [];
 
     for (let i = 0; i < moves; i++) {
         let axis;
         do { axis = axes[Math.floor(Math.random() * 3)]; } while (axis === lastAxis);
-        lastAxis = axis; // avoid back-to-back turns on the same axis (looks better)
-        const layer = layers[Math.floor(Math.random() * 3)];
+        lastAxis = axis; // avoid back-to-back turns on the same axis
+        const layer = layers[Math.floor(Math.random() * 2)];
         const dir = Math.random() < 0.5 ? 1 : -1;
         const move = { axis, layer, dir };
         turnQueue.push(move);
-        history.push(move); // remember it so Solve can reverse it
+        history.push(move);   // remember it so Solve can reverse it
+        generated.push(move);
     }
+    showMoves('Scramble', generated);
     startNextTurn();
 }
 
 const scrambleBtn = document.getElementById('scrambleBtn');
 const solveBtn = document.getElementById('solveBtn');
+const difficultyEl = document.getElementById('difficulty');
+const movesEl = document.getElementById('moves');
 
 // True when every cubie is back in its home position AND its home orientation,
 // regardless of how it got there. This is the real "is the cube solved?" test.
@@ -372,8 +435,10 @@ function isSolved() {
 }
 
 function refreshButtons() {
+    const solved = isSolved();
+    if (solved) history.length = 0; // once solved, prior moves are irrelevant — forget them
     scrambleBtn.disabled = isBusy;
-    solveBtn.disabled = isBusy || isSolved();
+    solveBtn.disabled = isBusy || solved;
 }
 
 // Solve by replaying every recorded turn in reverse order, each one inverted.
@@ -382,15 +447,19 @@ function solve() {
     if (isBusy || dragStage !== "IDLE" || isSolved()) return;
     isBusy = true;
     refreshButtons();
+
+    const sequence = [];
     for (let i = history.length - 1; i >= 0; i--) {
         const m = history[i];
-        turnQueue.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
+        sequence.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
     }
+    showMoves('Solve', sequence);
+    sequence.forEach(m => turnQueue.push(m));
     history.length = 0; // the queued turns bring us back to solved
     startNextTurn();
 }
 
-scrambleBtn.addEventListener('click', () => scramble(25));
+scrambleBtn.addEventListener('click', () => scramble(parseInt(difficultyEl.value, 10)));
 solveBtn.addEventListener('click', solve);
 refreshButtons();
 
