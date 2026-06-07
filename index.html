@@ -44,7 +44,6 @@ function createCubie(x, y, z) {
                         
     const mesh = new THREE.Mesh(geo, mats);
     mesh.position.set(x * spacing, y * spacing, z * spacing);
-    mesh.userData = { x, y, z };
     return mesh;
 }
 
@@ -62,7 +61,7 @@ for(let x = -1; x <= 1; x++) {
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-let dragStage = "IDLE"; 
+let dragStage = "IDLE";
 let selectedCubie = null;
 let selectedFaceNormal = new THREE.Vector3();
 let startMouse = new THREE.Vector2();
@@ -84,7 +83,10 @@ window.addEventListener("mousedown", (e) => {
 
     dragStage = "INITIATING";
     selectedCubie = hits[0].object;
+    
+    // Core Fix 1: Calculate face normal relative to current cubie orientation
     selectedFaceNormal.copy(hits[0].face.normal).applyQuaternion(selectedCubie.quaternion).normalize();
+
     startMouse.set(e.clientX, e.clientY);
 });
 
@@ -103,6 +105,7 @@ window.addEventListener("mousemove", (e) => {
 
     const rawRotAxis = new THREE.Vector3().crossVectors(selectedFaceNormal, dragWorldDir).normalize();
 
+    // Find closest pure world axis (X, Y, or Z)
     const axes = [new THREE.Vector3(1,0,0), new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,1)];
     let maxDot = -1;
     let bestAxis = new THREE.Vector3();
@@ -115,23 +118,25 @@ window.addEventListener("mousemove", (e) => {
         }
     });
 
-    rotationAxis.copy(bestAxis);
+    rotationAxis.copy(bestAxis).normalize();
 
-    scene.add(pivot);
+    // Reset pivot transformation
     pivot.position.set(0, 0, 0);
     pivot.rotation.set(0, 0, 0);
-    pivot.updateMatrixWorld();
+    pivot.quaternion.set(0, 0, 0, 1);
+    scene.add(pivot);
 
+    // Core Fix 2: Dynamically detect slices along the active axis using world coords
     let coordKey = 'x';
     if (Math.abs(rotationAxis.y) > 0.9) coordKey = 'y';
     if (Math.abs(rotationAxis.z) > 0.9) coordKey = 'z';
 
-    const targetVal = Math.round(selectedCubie.position[coordKey] / spacing) * spacing;
+    const targetVal = selectedCubie.position[coordKey];
 
     rotationGroup = [];
     cubies.forEach(c => {
-        const currentVal = Math.round(c.position[coordKey] / spacing) * spacing;
-        if (Math.abs(currentVal - targetVal) < 0.1) {
+        // Core Fix 3: Group by proximity to structural positions rather than rigid mesh memory
+        if (Math.abs(c.position[coordKey] - targetVal) < 0.2) {
             rotationGroup.push(c);
             pivot.attach(c);
         }
@@ -155,30 +160,35 @@ function handleRotationDrag(e) {
     const tangentDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
     const dragAmt = dragWorldDir.dot(tangentDir);
 
-    currentAngle = dragAmt * 0.005;
-    pivot.rotation.set(0,0,0);
-    pivot.rotateOnAxis(rotationAxis, currentAngle);
+    currentAngle = dragAmt * 0.01; // Sensitivity scale
+    
+    // Core Fix 4: Safely apply local updates via matrix rotation updates instead of raw overwriting
+    pivot.quaternion.setFromAxisAngle(rotationAxis, currentAngle);
 }
 
 window.addEventListener("mouseup", () => {
     window.removeEventListener("mousemove", handleRotationDrag);
-    
+        
     if (dragStage !== "ROTATING") {
         dragStage = "IDLE";
         return;
     }
 
+    // Round rotation precisely to the nearest 90-degree threshold
     const snappedAngle = Math.round(currentAngle / (Math.PI / 2)) * (Math.PI / 2);
-
-    pivot.rotation.set(0,0,0);
-    pivot.rotateOnAxis(rotationAxis, snappedAngle);
+    pivot.quaternion.setFromAxisAngle(rotationAxis, snappedAngle);
     pivot.updateMatrixWorld();
 
     rotationGroup.forEach(c => {
         scene.attach(c);
+        
+        // Core Fix 5: Hard-snap values to geometric integer multi-spaces to avoid drifting floating points
         c.position.x = Math.round(c.position.x / spacing) * spacing;
         c.position.y = Math.round(c.position.y / spacing) * spacing;
         c.position.z = Math.round(c.position.z / spacing) * spacing;
+        
+        // Core Fix 6: Matrix state clean up to reset inner rotation components accurately
+        c.quaternion.setFromRotationMatrix(c.matrixWorld);
     });
 
     scene.remove(pivot);
