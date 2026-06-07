@@ -6,8 +6,15 @@
         body { margin:0; overflow:hidden; background:#e9ecef; user-select: none; }
         canvas { display:block; }
         #controls {
+            position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+            z-index: 10;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            font: 600 15px system-ui, -apple-system, sans-serif;
+        }
+        #sliders {
             position: fixed; top: 16px; left: 16px; z-index: 10;
             display: flex; flex-direction: column; gap: 10px;
+            width: 180px;
             font: 600 15px system-ui, -apple-system, sans-serif;
         }
         .btn-row { display: flex; gap: 10px; }
@@ -34,6 +41,19 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
         #moves:empty { display: none; }
+        .slider {
+            display: flex; flex-direction: column; gap: 5px;
+            padding: 8px 10px; border-radius: 8px;
+            background: rgba(255,255,255,0.85); color: #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .slider label {
+            display: flex; justify-content: space-between;
+            font-size: 13px; font-weight: 600;
+        }
+        .slider input[type=range] {
+            width: 100%; cursor: pointer; accent-color: #339af0; margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -49,6 +69,17 @@
         <option value="30">Hard</option>
     </select>
     <div id="moves"></div>
+</div>
+
+<div id="sliders">
+    <div class="slider">
+        <label>Spin speed <span id="spinVal">3</span></label>
+        <input id="spinSpeed" type="range" min="1" max="5" step="1" value="3">
+    </div>
+    <div class="slider">
+        <label>Lighting <span id="lightVal">3</span></label>
+        <input id="lighting" type="range" min="1" max="5" step="1" value="3">
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -118,7 +149,9 @@ let currentAngle = 0;
 
 // --- Whole-cube orbit (camera) state ---
 const spherical = new THREE.Spherical();
-const ORBIT_SPEED = 0.01;
+let ORBIT_SPEED = 0.012;      // how fast dragging spins the whole cube
+let TURN_DRAG_SPEED = 0.005;  // how fast dragging turns an individual layer
+// (both are set together by the Spin speed slider)
 const PHI_EPS = 0.05; // keeps the camera from flipping at the poles
 
 // --- Scramble / programmatic-turn state ---
@@ -226,7 +259,7 @@ function handleRotationDrag(e) {
     const tangentDir = new THREE.Vector3().crossVectors(rotationAxis, selectedFaceNormal).normalize();
     const dragAmt = dragWorldDir.dot(tangentDir);
 
-    currentAngle = dragAmt * 0.005;
+    currentAngle = dragAmt * TURN_DRAG_SPEED;
     pivot.rotation.set(0,0,0);
     pivot.rotateOnAxis(rotationAxis, currentAngle);
 }
@@ -419,6 +452,10 @@ const scrambleBtn = document.getElementById('scrambleBtn');
 const solveBtn = document.getElementById('solveBtn');
 const difficultyEl = document.getElementById('difficulty');
 const movesEl = document.getElementById('moves');
+const spinSpeedEl = document.getElementById('spinSpeed');
+const spinValEl = document.getElementById('spinVal');
+const lightingEl = document.getElementById('lighting');
+const lightValEl = document.getElementById('lightVal');
 
 // True when every cubie is back in its home position AND its home orientation,
 // regardless of how it got there. This is the real "is the cube solved?" test.
@@ -462,6 +499,25 @@ function solve() {
 scrambleBtn.addEventListener('click', () => scramble(parseInt(difficultyEl.value, 10)));
 solveBtn.addEventListener('click', solve);
 refreshButtons();
+
+// Spin speed: level 1-5 sets how fast dragging spins the whole cube AND turns a layer
+function setSpinSpeed(level) {
+    ORBIT_SPEED = level * 0.004;       // whole-cube orbit
+    TURN_DRAG_SPEED = level * 0.0017;  // individual layer (level 3 ~ original 0.005)
+    spinValEl.textContent = level;
+}
+// Lighting: level 1-5 scales all three lights (level 3 = the default brightness)
+function setLighting(level) {
+    const f = level / 3;
+    ambientLight.intensity = 0.95 * f;
+    dirLight.intensity = 0.85 * f;
+    fillLight.intensity = 0.45 * f;
+    lightValEl.textContent = level;
+}
+spinSpeedEl.addEventListener('input', e => setSpinSpeed(parseInt(e.target.value, 10)));
+lightingEl.addEventListener('input', e => setLighting(parseInt(e.target.value, 10)));
+setSpinSpeed(parseInt(spinSpeedEl.value, 10));
+setLighting(parseInt(lightingEl.value, 10));
 
 function animate() {
     requestAnimationFrame(animate);
