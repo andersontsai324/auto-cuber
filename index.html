@@ -34,13 +34,30 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
         #moves {
-            max-width: 320px; padding: 10px 12px; border-radius: 8px;
+            display: none; /* shown via JS once there are moves */
+            align-items: flex-start; gap: 6px;
+            max-width: 320px; padding: 8px 10px; border-radius: 8px;
             background: rgba(255,255,255,0.85); color: #333;
             font: 500 14px ui-monospace, "SF Mono", Menlo, monospace;
-            line-height: 1.6; word-spacing: 4px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
-        #moves:empty { display: none; }
+        #moves.visible { display: flex; }
+        #movesText {
+            flex: 1; min-width: 0;
+            line-height: 1.6; word-spacing: 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* one line */
+        }
+        #moves.expanded #movesText {
+            white-space: normal; overflow: visible; /* show every move */
+        }
+        #movesToggle {
+            flex: none; display: none; /* shown only when the moves overflow one line */
+            border: none; background: none; cursor: pointer;
+            font-size: 13px; color: #555; padding: 2px; line-height: 1;
+            transition: transform 0.15s ease;
+        }
+        #moves.show-toggle #movesToggle { display: block; }
+        #moves.expanded #movesToggle { transform: rotate(180deg); }
         .slider {
             display: flex; flex-direction: column; gap: 5px;
             padding: 8px 10px; border-radius: 8px;
@@ -68,7 +85,10 @@
         <option value="16" selected>Medium</option>
         <option value="30">Hard</option>
     </select>
-    <div id="moves"></div>
+    <div id="moves">
+        <span id="movesText"></span>
+        <button id="movesToggle" aria-label="Expand moves">&#9662;</button>
+    </div>
 </div>
 
 <div id="sliders">
@@ -419,7 +439,12 @@ function toNotation(moves) {
 
 function showMoves(label, moves) {
     const seq = toNotation(moves);
-    movesEl.textContent = seq.length ? `${label}: ${seq.join('  ')}` : `${label}: (none)`;
+    movesTextEl.textContent = seq.length ? `${label}: ${seq.join('  ')}` : `${label}: (none)`;
+    movesEl.classList.add('visible');
+    movesEl.classList.remove('expanded'); // start collapsed (one line)
+    // Show the arrow only if the text doesn't fit on a single line.
+    const overflowing = movesTextEl.scrollWidth > movesTextEl.clientWidth + 1;
+    movesEl.classList.toggle('show-toggle', overflowing);
 }
 
 // Queue a random scramble of `moves` outer-face turns. Always solvable.
@@ -452,6 +477,9 @@ const scrambleBtn = document.getElementById('scrambleBtn');
 const solveBtn = document.getElementById('solveBtn');
 const difficultyEl = document.getElementById('difficulty');
 const movesEl = document.getElementById('moves');
+const movesTextEl = document.getElementById('movesText');
+const movesToggleEl = document.getElementById('movesToggle');
+movesToggleEl.addEventListener('click', () => movesEl.classList.toggle('expanded'));
 const spinSpeedEl = document.getElementById('spinSpeed');
 const spinValEl = document.getElementById('spinVal');
 const lightingEl = document.getElementById('lighting');
