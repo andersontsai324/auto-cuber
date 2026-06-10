@@ -53,7 +53,7 @@
         #movesToggle {
             flex: none; display: none; /* shown only when the moves overflow one line */
             border: none; background: none; cursor: pointer;
-            font-size: 13px; color: #555; padding: 2px; line-height: 1;
+            font-size: 13px; color: #000; padding: 2px; line-height: 1;
             transition: transform 0.15s ease;
         }
         #moves.show-toggle #movesToggle { display: block; }
@@ -70,6 +70,66 @@
         }
         .slider input[type=range] {
             width: 100%; cursor: pointer; accent-color: #339af0; margin: 0;
+        }
+        #algoBtn {
+            padding: 10px 18px; font: 600 15px system-ui, -apple-system, sans-serif;
+            color: #fff; background: #845ef7;
+            border: none; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        #algoBtn:hover { background: #7048e8; }
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,0.5);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            position: relative; background: #fff; color: #222;
+            width: min(94vw, 540px); max-height: 80vh; overflow-y: auto;
+            padding: 24px 24px 20px; border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            font: 400 15px system-ui, -apple-system, sans-serif;
+        }
+        .modal h2 { margin: 0 0 12px; font-size: 20px; }
+        .modal-close {
+            position: absolute; top: 12px; right: 12px;
+            border: none; background: none; cursor: pointer;
+            font-size: 22px; line-height: 1; color: #555; padding: 4px;
+        }
+        .modal-close:hover { color: #000; }
+        .modal-body { line-height: 1.6; }
+        .modal-body ul { padding-left: 18px; margin: 8px 0; }
+        .modal-body li { margin: 8px 0; }
+        .modal-body code {
+            font: 600 14px ui-monospace, Menlo, monospace;
+            background: #f1f3f5; padding: 2px 6px; border-radius: 4px;
+        }
+        .flow { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .node {
+            padding: 8px 16px; border-radius: 8px;
+            background: #4263eb; color: #fff; font-weight: 600; font-size: 15px;
+            white-space: nowrap;
+        }
+        .node.cross { background: #1971c2; }
+        .branches { display: flex; gap: 24px; align-items: flex-start; justify-content: center; }
+        .branch-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .cubes-row { display: flex; gap: 18px; margin-top: 2px; }
+        .case { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .case code { white-space: nowrap; }
+        svg.split, svg.downarrow { display: block; }
+        .cubeface { position: relative; width: 108px; height: 108px; }
+        .cubeface .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 36px);
+            grid-template-rows: repeat(3, 36px);
+        }
+        .cubeface .sq { border: 1px solid #343a40; box-sizing: border-box; }
+        .cubeface .sq.g { background: #adb5bd; }
+        .cubeface .sq.y { background: #ffd43b; }
+        .cubeface .arrow {
+            position: absolute; top: 0; left: 0;
+            width: 108px; height: 108px; pointer-events: none;
         }
     </style>
 </head>
@@ -99,6 +159,76 @@
     <div class="slider">
         <label>Lighting <span id="lightVal">3</span></label>
         <input id="lighting" type="range" min="1" max="5" step="1" value="3">
+    </div>
+    <button id="algoBtn">Algorithms</button>
+</div>
+
+<div id="algoModal" class="modal-overlay">
+    <div class="modal">
+        <button id="algoClose" class="modal-close" aria-label="Close">&times;</button>
+        <h2>Algorithms</h2>
+        <div class="modal-body">
+            <div class="flow">
+                <div class="node cross">Cross</div>
+
+                <svg class="split" viewBox="0 0 280 48" width="280" height="48">
+                    <defs>
+                        <marker id="sa" markerWidth="7" markerHeight="7" refX="3" refY="3.5" orient="auto">
+                            <path d="M0,0 L7,3.5 L0,7 Z" fill="#343a40"/>
+                        </marker>
+                    </defs>
+                    <line x1="140" y1="4" x2="62" y2="42" stroke="#343a40" stroke-width="2.5" marker-end="url(#sa)"/>
+                    <line x1="140" y1="4" x2="218" y2="42" stroke="#343a40" stroke-width="2.5" marker-end="url(#sa)"/>
+                </svg>
+
+                <div class="branches">
+                    <div class="branch-col">
+                        <div class="node">First Layer</div>
+                        <svg class="downarrow" viewBox="0 0 20 34" width="20" height="34">
+                            <defs>
+                                <marker id="da" markerWidth="7" markerHeight="7" refX="3" refY="3.5" orient="auto">
+                                    <path d="M0,0 L7,3.5 L0,7 Z" fill="#343a40"/>
+                                </marker>
+                            </defs>
+                            <line x1="10" y1="2" x2="10" y2="28" stroke="#343a40" stroke-width="2.5" marker-end="url(#da)"/>
+                        </svg>
+                        <div class="cubes-row">
+                            <div class="case">
+                                <div class="cubeface">
+                                    <div class="grid">
+                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
+                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
+                                        <div class="sq y"></div><div class="sq y"></div><div class="sq y"></div>
+                                    </div>
+                                    <svg class="arrow" viewBox="0 0 108 108">
+                                        <defs><marker id="ah1" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e03131"/></marker></defs>
+                                        <line x1="54" y1="20" x2="82" y2="48" stroke="#e03131" stroke-width="3" marker-end="url(#ah1)"/>
+                                    </svg>
+                                </div>
+                                <code>U R U' R' U' F' U F</code>
+                            </div>
+                            <div class="case">
+                                <div class="cubeface">
+                                    <div class="grid">
+                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
+                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
+                                        <div class="sq y"></div><div class="sq y"></div><div class="sq y"></div>
+                                    </div>
+                                    <svg class="arrow" viewBox="0 0 108 108">
+                                        <defs><marker id="ah2" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e03131"/></marker></defs>
+                                        <line x1="54" y1="20" x2="26" y2="48" stroke="#e03131" stroke-width="3" marker-end="url(#ah2)"/>
+                                    </svg>
+                                </div>
+                                <code>U' L' U L U F U' F'</code>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="branch-col">
+                        <div class="node">F2L</div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -480,6 +610,16 @@ const movesEl = document.getElementById('moves');
 const movesTextEl = document.getElementById('movesText');
 const movesToggleEl = document.getElementById('movesToggle');
 movesToggleEl.addEventListener('click', () => movesEl.classList.toggle('expanded'));
+
+// Algorithms popup
+const algoBtn = document.getElementById('algoBtn');
+const algoModal = document.getElementById('algoModal');
+const algoClose = document.getElementById('algoClose');
+algoBtn.addEventListener('click', () => algoModal.classList.add('open'));
+algoClose.addEventListener('click', () => algoModal.classList.remove('open'));
+// conveniences: click the dark backdrop or press Escape to close too
+algoModal.addEventListener('click', (e) => { if (e.target === algoModal) algoModal.classList.remove('open'); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') algoModal.classList.remove('open'); });
 const spinSpeedEl = document.getElementById('spinSpeed');
 const spinValEl = document.getElementById('spinVal');
 const lightingEl = document.getElementById('lighting');
@@ -506,21 +646,145 @@ function refreshButtons() {
     solveBtn.disabled = isBusy || solved;
 }
 
-// Solve by replaying every recorded turn in reverse order, each one inverted.
-// Undoing the full move history always returns the cube to solved.
+// ===== Shortest-path solver (bidirectional BFS over a logical cube model) =====
+// A logical cube is a Uint16Array(26); each entry encodes a cubie as posIndex*24 + orientIndex.
+function bfsRotMat(axis, dir) {
+    if (axis === 'x') return dir > 0 ? [1,0,0,0,0,-1,0,1,0] : [1,0,0,0,0,1,0,-1,0];
+    if (axis === 'y') return dir > 0 ? [0,0,1,0,1,0,-1,0,0] : [0,0,-1,0,1,0,1,0,0];
+    return dir > 0 ? [0,-1,0,1,0,0,0,0,1] : [0,1,0,-1,0,0,0,0,1];
+}
+function bfsMatMul(a, b) {
+    const r = new Array(9);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        let s = 0; for (let k = 0; k < 3; k++) s += a[i*3+k] * b[k*3+j]; r[i*3+j] = s;
+    }
+    return r;
+}
+function bfsMatVec(m, v) {
+    return [m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+}
+const ORIENTS = [];
+const ORIENT_INDEX = new Map();
+(function buildOrients() {
+    const id = [1,0,0,0,1,0,0,0,1];
+    const gens = [bfsRotMat('x',1), bfsRotMat('y',1), bfsRotMat('z',1)];
+    const q = [id]; ORIENT_INDEX.set(id.join(','), 0); ORIENTS.push(id);
+    while (q.length) {
+        const m = q.shift();
+        for (const g of gens) {
+            const n = bfsMatMul(g, m), k = n.join(',');
+            if (!ORIENT_INDEX.has(k)) { ORIENT_INDEX.set(k, ORIENTS.length); ORIENTS.push(n); q.push(n); }
+        }
+    }
+})();
+const HOMES = [];
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+    if (x === 0 && y === 0 && z === 0) continue; HOMES.push([x, y, z]);
+}
+const BFS_AXIS = { x: 0, y: 1, z: 2 };
+function pIndex(p) { return (p[0]+1)*9 + (p[1]+1)*3 + (p[2]+1); }
+function pFromIndex(i) { const x = (i/9|0)-1, r = i%9; return [x, (r/3|0)-1, r%3-1]; }
+
+// Precompute the 18 half-turn-metric moves as integer transition tables.
+const SOLVE_MOVES = [];
+for (const axis of ['x','y','z']) for (const layer of [-1,1]) for (const q of [1,2,3]) {
+    let M = [1,0,0,0,1,0,0,0,1]; const R = bfsRotMat(axis,1);
+    for (let i = 0; i < q; i++) M = bfsMatMul(R, M);
+    const ai = BFS_AXIS[axis];
+    const affected = new Uint8Array(27), posMap = new Int16Array(27), oriMap = new Int16Array(24);
+    for (let p = 0; p < 27; p++) {
+        const v = pFromIndex(p);
+        if (v[0]===0 && v[1]===0 && v[2]===0) { posMap[p] = p; continue; }
+        if (v[ai] === layer) { affected[p] = 1; posMap[p] = pIndex(bfsMatVec(M, v)); } else posMap[p] = p;
+    }
+    for (let o = 0; o < 24; o++) oriMap[o] = ORIENT_INDEX.get(bfsMatMul(M, ORIENTS[o]).join(','));
+    SOLVE_MOVES.push({ axis, layer, q, face: axis+layer, affected, posMap, oriMap });
+}
+const QUARTER_MOVE = {}; // (axis,layer,dir) -> the q=1 / q=3 move table, for replaying history
+for (const mv of SOLVE_MOVES) if (mv.q === 1 || mv.q === 3) QUARTER_MOVE[mv.axis + mv.layer + (mv.q===1?1:-1)] = mv;
+// The white face is +Y here, so the four white edges sit around the +Y centre.
+const WHITE_EDGE_HOMES = [[1,1,0], [-1,1,0], [0,1,1], [0,1,-1]];
+const WHITE_EDGE_GOAL = WHITE_EDGE_HOMES.map(h => pIndex(h) * 24); // home position, orientation 0 (white up)
+function crossStart() { return Uint16Array.from(WHITE_EDGE_GOAL); }
+function crossKey(e) { return String.fromCharCode(e[0], e[1], e[2], e[3]); }
+function applyCross(e, mv) {
+    const out = new Uint16Array(4);
+    for (let i = 0; i < 4; i++) {
+        const code = e[i], pi = code/24|0;
+        out[i] = mv.affected[pi] ? mv.posMap[pi]*24 + mv.oriMap[code%24] : code;
+    }
+    return out;
+}
+function isCross(e) {
+    return e[0]===WHITE_EDGE_GOAL[0] && e[1]===WHITE_EDGE_GOAL[1] &&
+           e[2]===WHITE_EDGE_GOAL[2] && e[3]===WHITE_EDGE_GOAL[3];
+}
+// BFS over ONLY the four white edges -> shortest move sequence to the white cross.
+// Because we ignore the other 22 cubies, the search space is tiny and always quick.
+function bfsCross(startEdges, maxStates = 300000) {
+    if (isCross(startEdges)) return [];
+    const visited = new Map();
+    const sKey = crossKey(startEdges);
+    visited.set(sKey, { parent: null, mv: null });
+    let front = [{ key: sKey, edges: startEdges, face: null, axis: null, layer: null }];
+    let total = 1;
+    while (front.length) {
+        const next = [];
+        for (const it of front) {
+            for (const mv of SOLVE_MOVES) {
+                if (it.face === mv.face) continue;                       // never turn the same face twice in a row
+                if (it.axis === mv.axis && mv.layer < it.layer) continue; // canonical order for parallel faces
+                const ne = applyCross(it.edges, mv), nk = crossKey(ne);
+                if (visited.has(nk)) continue;
+                visited.set(nk, { parent: it.key, mv });
+                if (isCross(ne)) {
+                    const path = []; let k = nk;
+                    while (true) { const n = visited.get(k); if (!n || n.parent === null) break; path.push(n.mv); k = n.parent; }
+                    path.reverse(); return path;
+                }
+                next.push({ key: nk, edges: ne, face: mv.face, axis: mv.axis, layer: mv.layer });
+                if (++total > maxStates) return null;
+            }
+        }
+        front = next;
+    }
+    return null;
+}
+// Expand half-turn moves into the quarter-turn {axis,layer,dir} moves the animation queue uses.
+function toQuarters(moves) {
+    const out = [];
+    for (const m of moves) {
+        if (m.q === 2) { out.push({axis:m.axis,layer:m.layer,dir:1}); out.push({axis:m.axis,layer:m.layer,dir:1}); }
+        else if (m.q !== 0) out.push({axis:m.axis,layer:m.layer,dir: m.q===3 ? -1 : 1});
+    }
+    return out;
+}
+
+// "Solve" currently builds only the white cross (the first step) and stops there.
 function solve() {
     if (isBusy || dragStage !== "IDLE" || isSolved()) return;
     isBusy = true;
     refreshButtons();
 
-    const sequence = [];
-    for (let i = history.length - 1; i >= 0; i--) {
-        const m = history[i];
-        sequence.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
+    let sequence = null, label = 'Cross';
+    const hasSlice = history.some(m => m.layer === 0); // BFS uses face turns only
+    if (!hasSlice) {
+        let edges = crossStart();
+        for (const m of history) edges = applyCross(edges, QUARTER_MOVE[m.axis + m.layer + m.dir]); // current edge config
+        const found = bfsCross(edges);
+        if (found) sequence = toQuarters(found);
     }
-    showMoves('Solve', sequence);
-    sequence.forEach(m => turnQueue.push(m));
-    history.length = 0; // the queued turns bring us back to solved
+    if (!sequence) { // fallback (e.g. slice turns were used): just rewind history
+        sequence = [];
+        for (let i = history.length - 1; i >= 0; i--) {
+            const m = history[i];
+            sequence.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
+        }
+        label = 'Solve (history)';
+    }
+    showMoves(label, sequence);
+    // These moves are actually applied to the cube, so keep history in sync (the cube is NOT fully solved).
+    sequence.forEach(m => { turnQueue.push(m); history.push(m); });
     startNextTurn();
 }
 
