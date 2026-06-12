@@ -308,10 +308,19 @@ const PHI_EPS = 0.05; // keeps the camera from flipping at the poles
 let isBusy = false;     // locks mouse input while the cube is auto-turning
 const turnQueue = [];   // pending { axis, layer, dir } moves to play out
 let activeTurn = null;  // the turn currently being animated
-const TURN_STEPS = 9;   // animation frames per 90° turn (smaller = faster)
+let TURN_STEPS = 9;     // animation frames per 90° turn (smaller = faster); set by Spin speed
 const history = [];     // every turn taken (scramble + manual), for the solver to reverse
 let pendingAxisKey = 'x'; // axis of the manual turn currently in progress
 let pendingLayer = 0;     // which layer (-1/0/1) that manual turn is on
+
+// --- Whole-cube "flip" (camera reorientation) state ---
+const CANON_CAM_POS = camera.position.clone(); // the default viewing position
+let activeFlip = null;  // an in-progress camera reorientation queued in the turn stream
+function resetCamera() { // snap the view back to the canonical orientation
+    camera.up.set(0, 1, 0);
+    camera.position.copy(CANON_CAM_POS);
+    camera.lookAt(0, 0, 0);
+}
 
 window.addEventListener("mousedown", (e) => {
     if (e.target !== renderer.domElement) return; // ignore clicks on UI (e.g. the button)
@@ -328,6 +337,7 @@ window.addEventListener("mousedown", (e) => {
         // Clicked empty space -> orbit the entire cube (move the camera around it)
         dragStage = "ORBITING";
         startMouse.set(e.clientX, e.clientY);
+        camera.up.set(0, 1, 0); // re-level the view (in case a solve left it flipped)
         spherical.setFromVector3(camera.position);
         window.addEventListener("mousemove", handleOrbitDrag);
         return;
@@ -470,7 +480,7 @@ function handleOrbitDrag(e) {
 
 // Start the next queued turn (or release the lock when the queue is empty)
 function startNextTurn() {
-    if (activeTurn) return;
+    if (activeTurn || activeFlip) return;
     if (turnQueue.length === 0) {
         isBusy = false;
         refreshButtons();
@@ -478,6 +488,10 @@ function startNextTurn() {
     }
 
     const move = turnQueue.shift();
+    if (move.flip) { // a camera reorientation, not a layer turn
+        activeFlip = { q1: move.flip, done: 0, steps: Math.max(8, TURN_STEPS * 3) };
+        return;
+    }
     const axisVec = new THREE.Vector3(
         move.axis === 'x' ? 1 : 0,
         move.axis === 'y' ? 1 : 0,
@@ -510,6 +524,18 @@ function startNextTurn() {
 
 // Advance the current turn a little each frame; snap & finish when it hits 90°
 function updateTurn() {
+    if (activeFlip) { // animate a queued camera reorientation
+        const f = activeFlip;
+        f.done++;
+        const t = Math.min(1, f.done / f.steps);
+        const e = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2; // ease in/out
+        const q = new THREE.Quaternion().slerpQuaternions(new THREE.Quaternion(), f.q1, e);
+        camera.position.copy(CANON_CAM_POS).applyQuaternion(q);
+        camera.up.set(0, 1, 0).applyQuaternion(q);
+        camera.lookAt(0, 0, 0);
+        if (t >= 1) { activeFlip = null; startNextTurn(); }
+        return;
+    }
     if (!activeTurn) return;
     const t = activeTurn;
     const dir = Math.sign(t.target);
@@ -581,6 +607,7 @@ function showMoves(label, moves) {
 function scramble(moves) {
     if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
     isBusy = true;
+    resetCamera(); // start each scramble from the canonical view
     refreshButtons();
 
     const axes = ['x', 'y', 'z'];
@@ -702,51 +729,82 @@ for (const axis of ['x','y','z']) for (const layer of [-1,1]) for (const q of [1
 }
 const QUARTER_MOVE = {}; // (axis,layer,dir) -> the q=1 / q=3 move table, for replaying history
 for (const mv of SOLVE_MOVES) if (mv.q === 1 || mv.q === 3) QUARTER_MOVE[mv.axis + mv.layer + (mv.q===1?1:-1)] = mv;
-// The white face is +Y here, so the four white edges sit around the +Y centre.
-const WHITE_EDGE_HOMES = [[1,1,0], [-1,1,0], [0,1,1], [0,1,-1]];
-const WHITE_EDGE_GOAL = WHITE_EDGE_HOMES.map(h => pIndex(h) * 24); // home position, orientation 0 (white up)
-function crossStart() { return Uint16Array.from(WHITE_EDGE_GOAL); }
-function crossKey(e) { return String.fromCharCode(e[0], e[1], e[2], e[3]); }
-function applyCross(e, mv) {
-    const out = new Uint16Array(4);
-    for (let i = 0; i < 4; i++) {
-        const code = e[i], pi = code/24|0;
-        out[i] = mv.affected[pi] ? mv.posMap[pi]*24 + mv.oriMap[code%24] : code;
+// Slice (layer 0) tables too, so replaying a manual middle-layer turn works the same way.
+for (const axis of ['x','y','z']) for (const q of [1,3]) {
+    let M = [1,0,0,0,1,0,0,0,1]; const R = bfsRotMat(axis,1);
+    for (let i = 0; i < q; i++) M = bfsMatMul(R, M);
+    const ai = BFS_AXIS[axis];
+    const affected = new Uint8Array(27), posMap = new Int16Array(27), oriMap = new Int16Array(24);
+    for (let p = 0; p < 27; p++) {
+        const v = pFromIndex(p);
+        if (v[0]===0 && v[1]===0 && v[2]===0) { posMap[p] = p; continue; }
+        if (v[ai] === 0) { affected[p] = 1; posMap[p] = pIndex(bfsMatVec(M, v)); } else posMap[p] = p;
+    }
+    for (let o = 0; o < 24; o++) oriMap[o] = ORIENT_INDEX.get(bfsMatMul(M, ORIENTS[o]).join(','));
+    QUARTER_MOVE[axis + '0' + (q===1?1:-1)] = { axis, layer:0, affected, posMap, oriMap };
+}
+// ===== Phased solver: solve pieces one at a time with bidirectional BFS =====
+// The cube is solved in groups; each phase tracks the pieces it must get home PLUS everything
+// solved so far, and BFS finds a short sequence that brings the new piece home without disturbing
+// the rest. Because each insertion is shallow, the bidirectional search stays cheap regardless of
+// the cube's huge overall state space. The solver is colour-agnostic: it picks whichever face
+// gives the fastest cross and solves relative to that face.
+const FACES = [['y',1], ['y',-1], ['x',1], ['x',-1], ['z',1], ['z',-1]]; // axis + sign of centre
+function faceAxisIndex(a) { return a === 'x' ? 0 : (a === 'y' ? 1 : 2); }
+function nonZeroCount(h) { return (h[0]?1:0) + (h[1]?1:0) + (h[2]?1:0); }
+// Pieces defined relative to a chosen face (axis a, sign s):
+function crossEdgesOf(a, s)   { return HOMES.filter(h => nonZeroCount(h)===2 && h[faceAxisIndex(a)]===s); }
+function firstCornersOf(a, s) { return HOMES.filter(h => nonZeroCount(h)===3 && h[faceAxisIndex(a)]===s); }
+function middleEdgesOf(a)     { return HOMES.filter(h => nonZeroCount(h)===2 && h[faceAxisIndex(a)]===0); }
+
+function subsetGoal(homes) { return Uint16Array.from(homes.map(h => pIndex(h) * 24)); }
+function subsetKey(codes) { let s = ''; for (let i = 0; i < codes.length; i++) s += String.fromCharCode(codes[i]); return s; }
+function applySubset(codes, mv) {
+    const out = new Uint16Array(codes.length);
+    for (let i = 0; i < codes.length; i++) {
+        const c = codes[i], pi = c/24|0;
+        out[i] = mv.affected[pi] ? mv.posMap[pi]*24 + mv.oriMap[c%24] : c;
     }
     return out;
 }
-function isCross(e) {
-    return e[0]===WHITE_EDGE_GOAL[0] && e[1]===WHITE_EDGE_GOAL[1] &&
-           e[2]===WHITE_EDGE_GOAL[2] && e[3]===WHITE_EDGE_GOAL[3];
+function bfsInvQ(q) { return (4 - q) % 4; }
+function bfsPath(visited, k) {
+    const m = []; let c = k;
+    while (true) { const n = visited.get(c); if (!n || n.parent === null) break; m.push(n.mv); c = n.parent; }
+    m.reverse(); return m;
 }
-// BFS over ONLY the four white edges -> shortest move sequence to the white cross.
-// Because we ignore the other 22 cubies, the search space is tiny and always quick.
-function bfsCross(startEdges, maxStates = 300000) {
-    if (isCross(startEdges)) return [];
-    const visited = new Map();
-    const sKey = crossKey(startEdges);
-    visited.set(sKey, { parent: null, mv: null });
-    let front = [{ key: sKey, edges: startEdges, face: null, axis: null, layer: null }];
-    let total = 1;
-    while (front.length) {
+// Bidirectional BFS that brings a tracked set of cubies to their home positions.
+function solveSubset(homes, startCodes, maxDepthEach = 8, maxStates = 500000) {
+    const goal = subsetGoal(homes), sKey = subsetKey(startCodes), gKey = subsetKey(goal);
+    if (sKey === gKey) return [];
+    const F = new Map(), B = new Map();
+    F.set(sKey, { parent: null, mv: null }); B.set(gKey, { parent: null, mv: null });
+    let frF = [{ key: sKey, codes: startCodes, face: null, axis: null, layer: null }];
+    let frB = [{ key: gKey, codes: goal, face: null, axis: null, layer: null }];
+    let depth = 0, total = 2;
+    while (frF.length && frB.length && depth < maxDepthEach * 2) {
+        const expandF = frF.length <= frB.length;
+        const front = expandF ? frF : frB, visited = expandF ? F : B, other = expandF ? B : F;
         const next = [];
         for (const it of front) {
             for (const mv of SOLVE_MOVES) {
-                if (it.face === mv.face) continue;                       // never turn the same face twice in a row
-                if (it.axis === mv.axis && mv.layer < it.layer) continue; // canonical order for parallel faces
-                const ne = applyCross(it.edges, mv), nk = crossKey(ne);
+                if (it.face === mv.face) continue;
+                if (it.axis === mv.axis && mv.layer < it.layer) continue;
+                const nc = applySubset(it.codes, mv), nk = subsetKey(nc);
                 if (visited.has(nk)) continue;
-                visited.set(nk, { parent: it.key, mv });
-                if (isCross(ne)) {
-                    const path = []; let k = nk;
-                    while (true) { const n = visited.get(k); if (!n || n.parent === null) break; path.push(n.mv); k = n.parent; }
-                    path.reverse(); return path;
+                if (other.has(nk)) {
+                    const fP = expandF ? bfsPath(F, it.key).concat([mv]) : bfsPath(F, nk);
+                    const bP = expandF ? bfsPath(B, nk) : bfsPath(B, it.key).concat([mv]);
+                    const tail = bP.slice().reverse().map(m => ({ axis: m.axis, layer: m.layer, q: bfsInvQ(m.q) }));
+                    return fP.concat(tail);
                 }
-                next.push({ key: nk, edges: ne, face: mv.face, axis: mv.axis, layer: mv.layer });
+                visited.set(nk, { parent: it.key, mv });
+                next.push({ key: nk, codes: nc, face: mv.face, axis: mv.axis, layer: mv.layer });
                 if (++total > maxStates) return null;
             }
         }
-        front = next;
+        if (expandF) frF = next; else frB = next;
+        depth++;
     }
     return null;
 }
@@ -759,32 +817,216 @@ function toQuarters(moves) {
     }
     return out;
 }
+// Reconstruct the current codes of a set of cubies by replaying history from solved.
+function reconstructCodes(homes, hist) {
+    let codes = subsetGoal(homes);
+    for (const m of hist) codes = applySubset(codes, QUARTER_MOVE[m.axis + m.layer + m.dir]);
+    return codes;
+}
 
-// "Solve" currently builds only the white cross (the first step) and stops there.
+// ----- Second layer via the two insertion algorithms, oriented to any solved face -----
+// Notation token -> internal quarter move.
+const ALG_TOK = { U:['y',1,-1], D:['y',-1,1], R:['x',1,-1], L:['x',-1,1], F:['z',1,-1], B:['z',-1,1] };
+function parseAlg(s) {
+    const out = [];
+    for (const t of s.split(/\s+/)) {
+        let [ax, ly, dir] = ALG_TOK[t[0]];
+        if (t.includes("'")) dir = -dir;
+        for (let i = 0; i < (t.includes('2') ? 2 : 1); i++) out.push({ axis: ax, layer: ly, dir });
+    }
+    return out;
+}
+// Reference macros assume the solved layer is on the BOTTOM (-Y) with the free layer on top (U) --
+// exactly the orientation your two algorithms (U R U' R' U' F' U F  and  U' L' U L U F U' F') are
+// written for. The other two are those same algorithms reflected to the back (B) face, so all four
+// middle slots can be filled without physically rotating the cube.
+const STD_MACROS = [
+    parseAlg("U"), parseAlg("U'"), parseAlg("U2"),       // line the edge up over its slot
+    parseAlg("U R U' R' U' F' U F"),                     // front-slot inserts (your algorithms)
+    parseAlg("U' L' U L U F U' F'"),
+    parseAlg("U L U' L' U' B' U B"),                     // back-slot inserts (reflected to back)
+    parseAlg("U' R' U R U B U' B'")
+];
+// "Turn it to the bottom": rather than physically rotating the cube (which would scramble our home
+// references), we conjugate the reference macros by a rotation g that carries the standard bottom
+// (-Y) onto the face we actually solved. The result is the identical method -- regular algorithms
+// with the solved layer treated as down -- expressed in the cube's fixed frame.
+function findOrientTo(faceVec) { // first rotation g with g . (0,-1,0) == faceVec
+    for (const g of ORIENTS) {
+        const m = bfsMatVec(g, [0, -1, 0]);
+        if (m[0]===faceVec[0] && m[1]===faceVec[1] && m[2]===faceVec[2]) return g;
+    }
+    return null;
+}
+function conjugateMove(g, mv) {
+    const e = [0,0,0]; e[faceAxisIndex(mv.axis)] = 1;          // the move's + axis direction
+    const a2 = bfsMatVec(g, e);                                 // where that axis maps to
+    const n = [0,0,0]; n[faceAxisIndex(mv.axis)] = mv.layer;    // the layer's outward normal
+    const n2 = bfsMatVec(g, n);
+    let axis, layer;
+    if (n2[0]!==0) { axis='x'; layer=n2[0]; }
+    else if (n2[1]!==0) { axis='y'; layer=n2[1]; }
+    else { axis='z'; layer=n2[2]; }
+    return { axis, layer, dir: mv.dir * a2[faceAxisIndex(axis)] }; // flip turn if axis flipped
+}
+function conjugateMacros(g) { return STD_MACROS.map(macro => macro.map(m => conjugateMove(g, m))); }
+
+function applyMacro(codes, macro) {
+    let s = codes;
+    for (const m of macro) s = applySubset(s, QUARTER_MOVE[m.axis + m.layer + m.dir]);
+    return s;
+}
+// Search over {free-layer setup turns + the four insertion algorithms} to seat all 4 middle edges.
+// Every macro preserves the solved layer, so the first layer stays intact. Re-inserting an edge
+// that's flipped in place falls out naturally (eject with an algorithm, then re-insert).
+function solveMiddle(middleHomes, macros, startCodes, maxStates = 300000) {
+    const goal = subsetGoal(middleHomes), gKey = subsetKey(goal), sKey = subsetKey(startCodes);
+    if (sKey === gKey) return [];
+    const visited = new Map();
+    visited.set(sKey, { parent: null, macro: null });
+    let front = [{ key: sKey, codes: startCodes }];
+    let total = 1;
+    while (front.length) {
+        const next = [];
+        for (const it of front) {
+            for (let mi = 0; mi < macros.length; mi++) {
+                const nc = applyMacro(it.codes, macros[mi]), nk = subsetKey(nc);
+                if (visited.has(nk)) continue;
+                visited.set(nk, { parent: it.key, macro: mi });
+                if (nk === gKey) {
+                    const order = []; let k = nk;
+                    while (true) { const n = visited.get(k); if (!n || n.parent === null) break; order.push(n.macro); k = n.parent; }
+                    order.reverse();
+                    const out = []; for (const mi2 of order) out.push(...macros[mi2]); return out;
+                }
+                next.push({ key: nk, codes: nc });
+                if (++total > maxStates) return null;
+            }
+        }
+        front = next;
+    }
+    return null;
+}
+
+// ----- Reading the whole cube as a logical state, robust to slice turns -----
+// state[i] = code of the cubie that belongs on HOMES[i]. Slice turns move the centre pieces, but
+// the centres always end up in one of the 24 cube orientations, so we can detect that orientation,
+// normalise the cube back to a centres-home frame, solve there, and map the moves back.
+const HOME_INDEX = new Map(); HOMES.forEach((h, i) => HOME_INDEX.set(h.join(','), i));
+function currentState() { return reconstructCodes(HOMES, history); }
+function transpose3(m) { return [m[0],m[3],m[6], m[1],m[4],m[7], m[2],m[5],m[8]]; }
+function subsetCodes(state, homes) { return Uint16Array.from(homes.map(h => state[HOME_INDEX.get(h.join(','))])); }
+function applyStateMove(state, mv) {
+    const out = new Uint16Array(26);
+    for (let i = 0; i < 26; i++) { const c = state[i], pi = c/24|0; out[i] = mv.affected[pi] ? mv.posMap[pi]*24 + mv.oriMap[c%24] : c; }
+    return out;
+}
+// Which of the 24 cube orientations the centres currently represent (-1 if mid-move / invalid).
+function detectRotation(state) {
+    const wPos = pFromIndex(state[HOME_INDEX.get('0,1,0')]/24|0); // white (+Y) centre
+    const rPos = pFromIndex(state[HOME_INDEX.get('1,0,0')]/24|0); // red (+X) centre
+    for (let gi = 0; gi < ORIENTS.length; gi++) {
+        const w = bfsMatVec(ORIENTS[gi], [0,1,0]), r = bfsMatVec(ORIENTS[gi], [1,0,0]);
+        if (w[0]===wPos[0]&&w[1]===wPos[1]&&w[2]===wPos[2] && r[0]===rPos[0]&&r[1]===rPos[1]&&r[2]===rPos[2]) return gi;
+    }
+    return -1;
+}
+// Rotate an entire state by matrix r (transforms every cubie's position and orientation).
+function rotateState(state, r) {
+    const out = new Uint16Array(26);
+    for (let i = 0; i < 26; i++) {
+        const c = state[i];
+        const np = bfsMatVec(r, pFromIndex(c/24|0));
+        const no = ORIENT_INDEX.get(bfsMatMul(r, ORIENTS[c%24]).join(','));
+        out[i] = pIndex(np)*24 + no;
+    }
+    return out;
+}
+
+// Pick the fastest cross colour, solve that first layer (cross + corners) with BFS, then finish the
+// middle layer with the algorithms oriented to that face. Works from a normalised state (centres
+// home). Returns first-layer and middle move lists separately, plus the solved face's normal.
+function solveF2LFromState(state) {
+    let best = null;
+    for (const [a, s] of FACES) {
+        const centreHome = [0,0,0]; centreHome[faceAxisIndex(a)] = s;
+        if ((subsetCodes(state, [centreHome])[0] / 24 | 0) !== pIndex(centreHome)) continue;
+        const sol = solveSubset(crossEdgesOf(a, s), subsetCodes(state, crossEdgesOf(a, s)));
+        if (sol === null) continue;
+        const len = toQuarters(sol).length;
+        if (!best || len < best.len) best = { a, s, len };
+    }
+    if (!best) return null;
+    const { a, s } = best;
+    const faceVec = [0,0,0]; faceVec[faceAxisIndex(a)] = s;
+    const g = findOrientTo(faceVec);
+    if (!g) return null;
+    const macros = conjugateMacros(g);
+    const middleHomes = middleEdgesOf(a);
+
+    const firstLayer = [];
+    let work = Uint16Array.from(state);
+    const applyMoves = (st, moves) => { let r = st; for (const m of moves) r = applyStateMove(r, QUARTER_MOVE[m.axis + m.layer + m.dir]); return r; };
+
+    let placed = crossEdgesOf(a, s).slice();
+    const cross = solveSubset(placed, subsetCodes(work, placed));
+    if (cross === null) return null;
+    let q = toQuarters(cross); firstLayer.push(...q); work = applyMoves(work, q);
+    for (const home of firstCornersOf(a, s)) {
+        placed.push(home);
+        const step = solveSubset(placed, subsetCodes(work, placed));
+        if (step === null) return null;
+        q = toQuarters(step); firstLayer.push(...q); work = applyMoves(work, q);
+    }
+    const middle = solveMiddle(middleHomes, macros, subsetCodes(work, middleHomes));
+    if (middle === null) return null;
+    return { firstLayer, middle, faceVec };
+}
+
+// All 12 first-two-layer pieces for a given face.
+function faceF2LHomes(a, s) {
+    return crossEdgesOf(a, s).concat(firstCornersOf(a, s)).concat(middleEdgesOf(a));
+}
+// True if the first two layers are already complete relative to the current centres.
+function isF2LDone() {
+    const state = currentState();
+    const gi = detectRotation(state);
+    if (gi < 0) return false;
+    const norm = rotateState(state, transpose3(ORIENTS[gi]));
+    return FACES.some(([a, s]) => subsetKey(subsetCodes(norm, faceF2LHomes(a, s))) === subsetKey(subsetGoal(faceF2LHomes(a, s))));
+}
+
+// "Solve" builds the first two layers, flipping the finished first side to the bottom before the
+// second-layer algorithms. Handles any state (including slice turns) by solving relative to wherever
+// the centres currently are. If the first two layers are already done, it does nothing.
 function solve() {
-    if (isBusy || dragStage !== "IDLE" || isSolved()) return;
+    if (isBusy || dragStage !== "IDLE" || isF2LDone()) return;
+    const state = currentState();
+    const gi = detectRotation(state);
+    if (gi < 0) return;
+    const g = ORIENTS[gi];
+    const plan = solveF2LFromState(rotateState(state, transpose3(g))); // solve in centres-home frame
+    if (!plan) return;
+
+    // Map the solution (and the solved-face normal) from the normalised frame back to the real cube.
+    const moves = m => conjugateMove(g, m);
+    const firstLayer = plan.firstLayer.map(moves);
+    const middle = plan.middle.map(moves);
+    const faceVec = bfsMatVec(g, plan.faceVec);
+
     isBusy = true;
     refreshButtons();
+    resetCamera();
+    showMoves('F2L', firstLayer.concat(middle));
 
-    let sequence = null, label = 'Cross';
-    const hasSlice = history.some(m => m.layer === 0); // BFS uses face turns only
-    if (!hasSlice) {
-        let edges = crossStart();
-        for (const m of history) edges = applyCross(edges, QUARTER_MOVE[m.axis + m.layer + m.dir]); // current edge config
-        const found = bfsCross(edges);
-        if (found) sequence = toQuarters(found);
-    }
-    if (!sequence) { // fallback (e.g. slice turns were used): just rewind history
-        sequence = [];
-        for (let i = history.length - 1; i >= 0; i--) {
-            const m = history[i];
-            sequence.push({ axis: m.axis, layer: m.layer, dir: -m.dir });
-        }
-        label = 'Solve (history)';
-    }
-    showMoves(label, sequence);
-    // These moves are actually applied to the cube, so keep history in sync (the cube is NOT fully solved).
-    sequence.forEach(m => { turnQueue.push(m); history.push(m); });
+    // A quaternion that carries the solved face onto the bottom of the view.
+    const C = new THREE.Vector3(faceVec[0], faceVec[1], faceVec[2]);
+    const flipQuat = new THREE.Quaternion().setFromUnitVectors(C, new THREE.Vector3(0, -1, 0)).invert();
+
+    // Queue: first layer -> flip the finished side down -> second layer. Real turns go into history.
+    firstLayer.forEach(m => { turnQueue.push(m); history.push(m); });
+    turnQueue.push({ flip: flipQuat });
+    middle.forEach(m => { turnQueue.push(m); history.push(m); });
     startNextTurn();
 }
 
@@ -796,6 +1038,7 @@ refreshButtons();
 function setSpinSpeed(level) {
     ORBIT_SPEED = level * 0.004;       // whole-cube orbit
     TURN_DRAG_SPEED = level * 0.0017;  // individual layer (level 3 ~ original 0.005)
+    TURN_STEPS = 15 - level * 2;       // solve/scramble turn speed (level 3 ~ original 9 frames)
     spinValEl.textContent = level;
 }
 // Lighting: level 1-5 scales all three lights (level 3 = the default brightness)
