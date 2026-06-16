@@ -826,13 +826,23 @@ function reconstructCodes(homes, hist) {
 
 // ----- Second layer via the two insertion algorithms, oriented to any solved face -----
 // Notation token -> internal quarter move.
-const ALG_TOK = { U:['y',1,-1], D:['y',-1,1], R:['x',1,-1], L:['x',-1,1], F:['z',1,-1], B:['z',-1,1] };
+// Each token expands to one or more single-layer quarter turns (dir = about the + axis).
+// Faces R L U D F B; slices M E S; wide r l u d f b (outer face + adjacent slice). No x/y/z
+// rotations are used, so every subsequent move stays absolute (a slice never reframes later moves).
+const ALG_BASE = {
+    R:[['x',1,-1]], L:[['x',-1,1]], U:[['y',1,-1]], D:[['y',-1,1]], F:[['z',1,-1]], B:[['z',-1,1]],
+    M:[['x',0,1]], E:[['y',0,1]], S:[['z',0,-1]],
+    r:[['x',1,-1],['x',0,-1]], l:[['x',-1,1],['x',0,1]],
+    u:[['y',1,-1],['y',0,-1]], d:[['y',-1,1],['y',0,1]],
+    f:[['z',1,-1],['z',0,-1]], b:[['z',-1,1],['z',0,1]]
+};
 function parseAlg(s) {
     const out = [];
-    for (const t of s.split(/\s+/)) {
-        let [ax, ly, dir] = ALG_TOK[t[0]];
-        if (t.includes("'")) dir = -dir;
-        for (let i = 0; i < (t.includes('2') ? 2 : 1); i++) out.push({ axis: ax, layer: ly, dir });
+    for (const t of s.trim().split(/\s+/)) {
+        if (!t) continue;
+        const base = ALG_BASE[t[0]];
+        const prime = t.includes("'"), reps = t.includes('2') ? 2 : 1;
+        for (let i = 0; i < reps; i++) for (const [ax, ly, d] of base) out.push({ axis: ax, layer: ly, dir: prime ? -d : d });
     }
     return out;
 }
@@ -859,15 +869,15 @@ function findOrientTo(faceVec) { // first rotation g with g . (0,-1,0) == faceVe
     return null;
 }
 function conjugateMove(g, mv) {
-    const e = [0,0,0]; e[faceAxisIndex(mv.axis)] = 1;          // the move's + axis direction
-    const a2 = bfsMatVec(g, e);                                 // where that axis maps to
-    const n = [0,0,0]; n[faceAxisIndex(mv.axis)] = mv.layer;    // the layer's outward normal
-    const n2 = bfsMatVec(g, n);
-    let axis, layer;
-    if (n2[0]!==0) { axis='x'; layer=n2[0]; }
-    else if (n2[1]!==0) { axis='y'; layer=n2[1]; }
-    else { axis='z'; layer=n2[2]; }
-    return { axis, layer, dir: mv.dir * a2[faceAxisIndex(axis)] }; // flip turn if axis flipped
+    // Where the move's + axis maps to under g. For a face this also gives the layer's new side;
+    // for a slice (layer 0) the layer stays 0 but we still need the axis image to name the slice.
+    const e = [0,0,0]; e[faceAxisIndex(mv.axis)] = 1;
+    const a2 = bfsMatVec(g, e);
+    let axis, sA;
+    if (a2[0] !== 0) { axis = 'x'; sA = a2[0]; }
+    else if (a2[1] !== 0) { axis = 'y'; sA = a2[1]; }
+    else { axis = 'z'; sA = a2[2]; }
+    return { axis, layer: mv.layer * sA, dir: mv.dir * sA }; // flip layer side and turn if axis flipped
 }
 function conjugateMacros(g) { return STD_MACROS.map(macro => macro.map(m => conjugateMove(g, m))); }
 
@@ -943,9 +953,139 @@ function rotateState(state, r) {
     return out;
 }
 
-// Pick the fastest cross colour, solve that first layer (cross + corners) with BFS, then finish the
-// middle layer with the algorithms oriented to that face. Works from a normalised state (centres
-// home). Returns first-layer and middle move lists separately, plus the solved face's normal.
+// ===== Last layer: full OLL (57) + PLL (21) with auto-generated, self-consistent recognition =====
+// Algorithms are written in the standard frame (last layer on +Y, first two layers below). At solve
+// time each is conjugated by g_f -- the same rotation that orients the middle macros -- so it acts on
+// the real last-layer face (the one opposite the solved cross). Recognition tables are generated from
+// the algorithms themselves: applying an algorithm's inverse to a solved cube yields exactly the case
+// that algorithm fixes, so we record that signature -> algorithm. AUF is brute-forced at run time.
+const OLL_ALGS = {
+ 1:"R U2 R2 F R F' U2 R' F R F'",2:"r U r' U2 r U2 R' U2 R U' r'",3:"r' R2 U R' U r U2 r' U M'",4:"M U' r U2 r' U' R U' R' M'",
+ 5:"l' U2 L U L' U l",6:"r U2 R' U' R U' r'",7:"r U R' U R U2 r'",8:"l' U' L U' L' U2 l",
+ 9:"R U R' U' R' F R2 U R' U' F'",10:"R U R' U R' F R F' R U2 R'",11:"r U R' U R' F R F' R U2 r'",12:"M' R' U' R U' R' U2 R U' M",
+ 13:"F U R U' R2 F' R U R U' R'",14:"R' F R U R' F' R F U' F'",15:"l' U' l L' U' L U l' U l",16:"r U r' R U R' U' r U' r'",
+ 17:"R U R' U R' F R F' U2 R' F R F'",18:"r U R' U R U2 r2 U' R U' R' U2 r",19:"r' R U R U R' U' r R2 F R F'",20:"r U R' U' M2 U R U' R' U' M'",
+ 21:"R U2 R' U' R U R' U' R U' R'",22:"R U2 R2 U' R2 U' R2 U2 R",23:"R2 D R' U2 R D' R' U2 R'",24:"r U R' U' r' F R F'",
+ 25:"F' r U R' U' r' F R",26:"R U2 R' U' R U' R'",27:"R U R' U R U2 R'",28:"r U R' U' r' R U R U' R'",
+ 29:"R U R' U' R U' R' F' U' F R U R'",30:"F R' F R2 U' R' U' R U R' F2",31:"R' U' F U R U' R' F' R",32:"L U F' U' L' U L F L'",
+ 33:"R U R' U' R' F R F'",34:"R U R2 U' R' F R U R U' F'",35:"R U2 R2 F R F' R U2 R'",36:"L' U' L U' L' U L U L F' L' F",
+ 37:"F R' F' R U R U' R'",38:"R U R' U R U' R' U' R' F R F'",39:"L F' L' U' L U F U' L'",40:"R' F R U R' U' F' U R",
+ 41:"R U R' U R U2 R' F R U R' U' F'",42:"R' U' R U' R' U2 R F R U R' U' F'",43:"F' U' L' U L F",44:"F U R U' R' F'",
+ 45:"F R U R' U' F'",46:"R' U' R' F R F' U R",47:"R' U' R' F R F' R' F R F' U R",48:"F R U R' U' R U R' U' F'",
+ 49:"r U' r2 U r2 U r2 U' r",50:"r' U r2 U' r2 U' r2 U r'",51:"F U R U' R' U R U' R' F'",52:"R U R' U R U' B U' B' R'",
+ 53:"l' U2 L U L' U' L U L' U l",54:"r U2 R' U' R U R' U' R U' r'",55:"R' F R U R U' R2 F' R2 U' R' U R U R'",56:"r U r' U R U' R' U R U' R' r U' r'",
+ 57:"R U R' U' M' U R U' r'"
+};
+const PLL_ALGS = {
+ Ua:"R U' R U R U R U' R' U' R2",Ub:"R2 U R U R' U' R' U' R' U R'",
+ Z:"M2 U M2 U M' U2 M2 U2 M'",H:"M2 U M2 U2 M2 U M2",
+ Aa:"R' F R' B2 R F' R' B2 R2",Ab:"R B' R F2 R' B R F2 R2",
+ E:"R' U L' D2 L U' R L' U R' D2 R U' L",
+ T:"R U R' U' R' F R2 U' R' U' R U R' F'",
+ F:"R' U' F' R U R' U' R' F R2 U' R' U' R U R' U R",
+ Ja:"L' U' L F L' U' L U L F' L2 U L U",Jb:"R U R' F' R U R' U' R' F R2 U' R' U'",
+ Ra:"R U' R' U' R U R D R' U' R D' R' U2 R'",Rb:"R' U2 R U2 R' F R U R' U' R' F' R2 U'",
+ Ga:"R2 U R' U R' U' R U' R2 U' D R' U R D'",Gb:"R' U' R U D' R2 U R' U R U' R U' R2 D",
+ Gc:"R2 U' R U' R U R' U R2 U D' R U' R' D",Gd:"R U R' U' D R2 U' R U' R' U R' U R2 D'",
+ V:"R' U R' U' R D' R' D R' U D' R2 U' R2 D R2",Y:"F R U' R' U' R U R' F' R U R' U' R' F R F'",
+ Na:"R U R' U R U R' F' R U R' U' R' F R2 U' R' U2 R U' R'",Nb:"R' U R U' R' F' U' F R U R' F R' F' R U' R"
+};
+function applyLLMoves(state, moves) {
+    let s = state;
+    for (const m of moves) s = applyStateMove(s, QUARTER_MOVE[m.axis + m.layer + m.dir]);
+    return s;
+}
+function invertMoves(moves) { return moves.slice().reverse().map(m => ({ axis: m.axis, layer: m.layer, dir: -m.dir })); }
+// The 8 last-layer edge/corner homes for a face (axis a, sign s), in a fixed deterministic order.
+function llPositions(a, s) {
+    const ai = faceAxisIndex(a);
+    return HOMES.filter(h => nonZeroCount(h) >= 2 && h[ai] === s).sort((p, q) => p.join(',') < q.join(',') ? -1 : 1);
+}
+function dirKey(v) { return v[0] + ',' + v[1] + ',' + v[2]; }
+// position-index -> { homeIdx, ori } for the cubie currently at that position
+function posInfoMap(state) {
+    const m = {};
+    for (let i = 0; i < state.length; i++) { const c = state[i]; m[c/24|0] = { homeIdx: i, ori: c % 24 }; }
+    return m;
+}
+// OLL signature: where each last-layer piece's last-layer-colour sticker points (orientation only).
+function ollSignature(state, llPos, Lunit) {
+    const info = posInfoMap(state); let s = '';
+    for (const p of llPos) s += dirKey(bfsMatVec(ORIENTS[info[pIndex(p)].ori], Lunit)) + ';';
+    return s;
+}
+// PLL signature: which piece (by home) sits at each last-layer position (permutation only).
+function pllSignature(state, llPos) {
+    const info = posInfoMap(state); let s = '';
+    for (const p of llPos) s += info[pIndex(p)].homeIdx + ';';
+    return s;
+}
+function llOriented(state, llPos, Lunit) {
+    const info = posInfoMap(state);
+    for (const p of llPos) { const d = bfsMatVec(ORIENTS[info[pIndex(p)].ori], Lunit); if (d[0]!==Lunit[0]||d[1]!==Lunit[1]||d[2]!==Lunit[2]) return false; }
+    return true;
+}
+function llSolved(state, llPos) {
+    const info = posInfoMap(state);
+    for (const p of llPos) { const pi = pIndex(p); if (info[pi].homeIdx !== HOME_INDEX.get(p.join(',')) || info[pi].ori !== 0) return false; }
+    return true;
+}
+// Build the conjugated recognition tables for the last-layer face named by g_f.
+function buildLLMaps(gf, llPos, Lunit) {
+    const solved = subsetGoal(HOMES);
+    const Uc = conjugateMove(gf, { axis:'y', layer:1, dir:-1 });      // conjugated U = a last-layer turn
+    const UcSeq = [[], [Uc], [Uc, Uc], [Uc, Uc, Uc]];                 // U^0 .. U^3 about the last layer
+    const ollMap = new Map(), pllMap = new Map();
+    for (const str of Object.values(OLL_ALGS)) {
+        const ac = parseAlg(str).map(m => conjugateMove(gf, m));
+        const sig = ollSignature(applyLLMoves(solved, invertMoves(ac)), llPos, Lunit);
+        if (!ollMap.has(sig)) ollMap.set(sig, ac);
+    }
+    for (const str of Object.values(PLL_ALGS)) {
+        const ac = parseAlg(str).map(m => conjugateMove(gf, m));
+        for (let b = 0; b < 4; b++) {                                 // each alg also covers 4 post-AUFs
+            const caseState = applyLLMoves(applyLLMoves(solved, UcSeq[(4 - b) % 4]), invertMoves(ac)); // alg^-1 . U^-b . solved
+            const sig = pllSignature(caseState, llPos);
+            if (!pllMap.has(sig)) pllMap.set(sig, { alg: ac, postAuf: b });
+        }
+    }
+    return { ollMap, pllMap, UcSeq };
+}
+// Solve the last layer of a centres-home, F2L-complete state. Returns moves in that frame, or null.
+function solveLastLayer(state, faceVec) {
+    const a = faceVec[0] ? 'x' : (faceVec[1] ? 'y' : 'z');
+    const Lunit = [-faceVec[0], -faceVec[1], -faceVec[2]];            // last layer is opposite the solved face
+    const ls = Lunit[faceAxisIndex(a)];
+    const gf = findOrientTo(faceVec);
+    const llPos = llPositions(a, ls);
+    const { ollMap, pllMap, UcSeq } = buildLLMaps(gf, llPos, Lunit);
+    let s = state, moves = [];
+    if (!llOriented(s, llPos, Lunit)) {                              // OLL (skip if already oriented)
+        let done = false;
+        for (let k = 0; k < 4; k++) {
+            const t = applyLLMoves(s, UcSeq[k]);
+            const hit = ollMap.get(ollSignature(t, llPos, Lunit));
+            if (hit) { moves.push(...UcSeq[k], ...hit); s = applyLLMoves(t, hit); done = true; break; }
+        }
+        if (!done) return null;
+    }
+    let pre = false;                                                 // already permuted? then skip PLL
+    for (let k = 0; k < 4; k++) if (llSolved(applyLLMoves(s, UcSeq[k]), llPos)) { pre = true; break; }
+    if (!pre) {                                                      // PLL (pre-AUF U^a, alg, post-AUF U^b)
+        let done = false;
+        for (let k = 0; k < 4; k++) {
+            const t = applyLLMoves(s, UcSeq[k]);
+            const hit = pllMap.get(pllSignature(t, llPos));
+            if (hit) { const post = UcSeq[hit.postAuf]; moves.push(...UcSeq[k], ...hit.alg, ...post); s = applyLLMoves(applyLLMoves(t, hit.alg), post); done = true; break; }
+        }
+        if (!done) return null;
+    }
+    let done = false;                                                // final AUF
+    for (let k = 0; k < 4; k++) { const t = applyLLMoves(s, UcSeq[k]); if (llSolved(t, llPos)) { moves.push(...UcSeq[k]); s = t; done = true; break; } }
+    return done ? moves : null;
+}
+
+
 function solveF2LFromState(state) {
     let best = null;
     for (const [a, s] of FACES) {
@@ -980,7 +1120,10 @@ function solveF2LFromState(state) {
     }
     const middle = solveMiddle(middleHomes, macros, subsetCodes(work, middleHomes));
     if (middle === null) return null;
-    return { firstLayer, middle, faceVec };
+    const afterF2L = applyMoves(work, middle);
+    const lastLayer = solveLastLayer(afterF2L, faceVec);
+    if (lastLayer === null) return null;
+    return { firstLayer, middle, lastLayer, faceVec };
 }
 
 // All 12 first-two-layer pieces for a given face.
@@ -1000,7 +1143,7 @@ function isF2LDone() {
 // second-layer algorithms. Handles any state (including slice turns) by solving relative to wherever
 // the centres currently are. If the first two layers are already done, it does nothing.
 function solve() {
-    if (isBusy || dragStage !== "IDLE" || isF2LDone()) return;
+    if (isBusy || dragStage !== "IDLE" || isSolved()) return;
     const state = currentState();
     const gi = detectRotation(state);
     if (gi < 0) return;
@@ -1012,21 +1155,24 @@ function solve() {
     const moves = m => conjugateMove(g, m);
     const firstLayer = plan.firstLayer.map(moves);
     const middle = plan.middle.map(moves);
+    const lastLayer = plan.lastLayer.map(moves);
     const faceVec = bfsMatVec(g, plan.faceVec);
 
     isBusy = true;
     refreshButtons();
     resetCamera();
-    showMoves('F2L', firstLayer.concat(middle));
+    showMoves('Solve', firstLayer.concat(middle).concat(lastLayer));
 
     // A quaternion that carries the solved face onto the bottom of the view.
     const C = new THREE.Vector3(faceVec[0], faceVec[1], faceVec[2]);
     const flipQuat = new THREE.Quaternion().setFromUnitVectors(C, new THREE.Vector3(0, -1, 0)).invert();
 
-    // Queue: first layer -> flip the finished side down -> second layer. Real turns go into history.
+    // Queue: first layer -> flip the finished side down -> second layer + last layer. All real turns
+    // go into history so the cube's logical state stays in sync.
     firstLayer.forEach(m => { turnQueue.push(m); history.push(m); });
     turnQueue.push({ flip: flipQuat });
     middle.forEach(m => { turnQueue.push(m); history.push(m); });
+    lastLayer.forEach(m => { turnQueue.push(m); history.push(m); });
     startNextTurn();
 }
 
