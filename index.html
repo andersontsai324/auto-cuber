@@ -131,6 +131,8 @@
             position: absolute; top: 0; left: 0;
             width: 108px; height: 108px; pointer-events: none;
         }
+        .flow-arrow { color: #868e96; font-size: 20px; line-height: 1; margin: 1px 0; }
+        .step-note { margin: 2px 0 4px; font-size: 13px; color: #495057; text-align: center; max-width: 340px; }
     </style>
 </head>
 <body>
@@ -170,63 +172,16 @@
         <div class="modal-body">
             <div class="flow">
                 <div class="node cross">Cross</div>
-
-                <svg class="split" viewBox="0 0 280 48" width="280" height="48">
-                    <defs>
-                        <marker id="sa" markerWidth="7" markerHeight="7" refX="3" refY="3.5" orient="auto">
-                            <path d="M0,0 L7,3.5 L0,7 Z" fill="#343a40"/>
-                        </marker>
-                    </defs>
-                    <line x1="140" y1="4" x2="62" y2="42" stroke="#343a40" stroke-width="2.5" marker-end="url(#sa)"/>
-                    <line x1="140" y1="4" x2="218" y2="42" stroke="#343a40" stroke-width="2.5" marker-end="url(#sa)"/>
-                </svg>
-
-                <div class="branches">
-                    <div class="branch-col">
-                        <div class="node">First Layer</div>
-                        <svg class="downarrow" viewBox="0 0 20 34" width="20" height="34">
-                            <defs>
-                                <marker id="da" markerWidth="7" markerHeight="7" refX="3" refY="3.5" orient="auto">
-                                    <path d="M0,0 L7,3.5 L0,7 Z" fill="#343a40"/>
-                                </marker>
-                            </defs>
-                            <line x1="10" y1="2" x2="10" y2="28" stroke="#343a40" stroke-width="2.5" marker-end="url(#da)"/>
-                        </svg>
-                        <div class="cubes-row">
-                            <div class="case">
-                                <div class="cubeface">
-                                    <div class="grid">
-                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
-                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
-                                        <div class="sq y"></div><div class="sq y"></div><div class="sq y"></div>
-                                    </div>
-                                    <svg class="arrow" viewBox="0 0 108 108">
-                                        <defs><marker id="ah1" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e03131"/></marker></defs>
-                                        <line x1="54" y1="20" x2="82" y2="48" stroke="#e03131" stroke-width="3" marker-end="url(#ah1)"/>
-                                    </svg>
-                                </div>
-                                <code>U R U' R' U' F' U F</code>
-                            </div>
-                            <div class="case">
-                                <div class="cubeface">
-                                    <div class="grid">
-                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
-                                        <div class="sq g"></div><div class="sq y"></div><div class="sq g"></div>
-                                        <div class="sq y"></div><div class="sq y"></div><div class="sq y"></div>
-                                    </div>
-                                    <svg class="arrow" viewBox="0 0 108 108">
-                                        <defs><marker id="ah2" markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#e03131"/></marker></defs>
-                                        <line x1="54" y1="20" x2="26" y2="48" stroke="#e03131" stroke-width="3" marker-end="url(#ah2)"/>
-                                    </svg>
-                                </div>
-                                <code>U' L' U L U F U' F'</code>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="branch-col">
-                        <div class="node">F2L</div>
-                    </div>
-                </div>
+                <p class="step-note">Four edges of one face, solved by shortest-path search.</p>
+                <div class="flow-arrow">&#8595;</div>
+                <div class="node">F2L &mdash; first two layers</div>
+                <p class="step-note">Each bottom corner is joined with its matching middle edge and the pair is inserted together &mdash; the first and second layers finish at the same time, with no memorised insertion algorithms.</p>
+                <div class="flow-arrow">&#8595;</div>
+                <div class="node">OLL &mdash; orient last layer</div>
+                <p class="step-note">All 57 cases. Turns the whole last-layer face a single colour.</p>
+                <div class="flow-arrow">&#8595;</div>
+                <div class="node">PLL &mdash; permute last layer</div>
+                <p class="step-note">All 21 cases. Slides the oriented pieces home. Solved.</p>
             </div>
         </div>
     </div>
@@ -824,8 +779,7 @@ function reconstructCodes(homes, hist) {
     return codes;
 }
 
-// ----- Second layer via the two insertion algorithms, oriented to any solved face -----
-// Notation token -> internal quarter move.
+// ----- Algorithm notation parser (used by the last-layer OLL/PLL tables) -----
 // Each token expands to one or more single-layer quarter turns (dir = about the + axis).
 // Faces R L U D F B; slices M E S; wide r l u d f b (outer face + adjacent slice). No x/y/z
 // rotations are used, so every subsequent move stays absolute (a slice never reframes later moves).
@@ -846,21 +800,10 @@ function parseAlg(s) {
     }
     return out;
 }
-// Reference macros assume the solved layer is on the BOTTOM (-Y) with the free layer on top (U) --
-// exactly the orientation your two algorithms (U R U' R' U' F' U F  and  U' L' U L U F U' F') are
-// written for. The other two are those same algorithms reflected to the back (B) face, so all four
-// middle slots can be filled without physically rotating the cube.
-const STD_MACROS = [
-    parseAlg("U"), parseAlg("U'"), parseAlg("U2"),       // line the edge up over its slot
-    parseAlg("U R U' R' U' F' U F"),                     // front-slot inserts (your algorithms)
-    parseAlg("U' L' U L U F U' F'"),
-    parseAlg("U L U' L' U' B' U B"),                     // back-slot inserts (reflected to back)
-    parseAlg("U' R' U R U B U' B'")
-];
-// "Turn it to the bottom": rather than physically rotating the cube (which would scramble our home
-// references), we conjugate the reference macros by a rotation g that carries the standard bottom
-// (-Y) onto the face we actually solved. The result is the identical method -- regular algorithms
-// with the solved layer treated as down -- expressed in the cube's fixed frame.
+// A last-layer algorithm is written for the last layer on +Y. To make it act on whichever face we
+// actually finished on, we conjugate each of its moves by a rotation g that carries the standard
+// reference onto that face (findOrientTo) -- the identical algorithm in the cube's fixed frame, with
+// no physical reorientation that would scramble our home references.
 function findOrientTo(faceVec) { // first rotation g with g . (0,-1,0) == faceVec
     for (const g of ORIENTS) {
         const m = bfsMatVec(g, [0, -1, 0]);
@@ -878,44 +821,6 @@ function conjugateMove(g, mv) {
     else if (a2[1] !== 0) { axis = 'y'; sA = a2[1]; }
     else { axis = 'z'; sA = a2[2]; }
     return { axis, layer: mv.layer * sA, dir: mv.dir * sA }; // flip layer side and turn if axis flipped
-}
-function conjugateMacros(g) { return STD_MACROS.map(macro => macro.map(m => conjugateMove(g, m))); }
-
-function applyMacro(codes, macro) {
-    let s = codes;
-    for (const m of macro) s = applySubset(s, QUARTER_MOVE[m.axis + m.layer + m.dir]);
-    return s;
-}
-// Search over {free-layer setup turns + the four insertion algorithms} to seat all 4 middle edges.
-// Every macro preserves the solved layer, so the first layer stays intact. Re-inserting an edge
-// that's flipped in place falls out naturally (eject with an algorithm, then re-insert).
-function solveMiddle(middleHomes, macros, startCodes, maxStates = 300000) {
-    const goal = subsetGoal(middleHomes), gKey = subsetKey(goal), sKey = subsetKey(startCodes);
-    if (sKey === gKey) return [];
-    const visited = new Map();
-    visited.set(sKey, { parent: null, macro: null });
-    let front = [{ key: sKey, codes: startCodes }];
-    let total = 1;
-    while (front.length) {
-        const next = [];
-        for (const it of front) {
-            for (let mi = 0; mi < macros.length; mi++) {
-                const nc = applyMacro(it.codes, macros[mi]), nk = subsetKey(nc);
-                if (visited.has(nk)) continue;
-                visited.set(nk, { parent: it.key, macro: mi });
-                if (nk === gKey) {
-                    const order = []; let k = nk;
-                    while (true) { const n = visited.get(k); if (!n || n.parent === null) break; order.push(n.macro); k = n.parent; }
-                    order.reverse();
-                    const out = []; for (const mi2 of order) out.push(...macros[mi2]); return out;
-                }
-                next.push({ key: nk, codes: nc });
-                if (++total > maxStates) return null;
-            }
-        }
-        front = next;
-    }
-    return null;
 }
 
 // ----- Reading the whole cube as a logical state, robust to slice turns -----
@@ -1086,6 +991,11 @@ function solveLastLayer(state, faceVec) {
 }
 
 
+// CFOP F2L from a normalised state (centres home). Pick the fastest cross colour, lay the cross,
+// then solve the first two layers together as four corner+edge PAIRS: for each bottom corner we add
+// it and its matching middle edge to the tracked set and let the bidirectional BFS seat both at once
+// (the shortest insertion, no memorised algorithms). Returns the cross moves and the pair moves
+// separately (so the view can flip the cross to the bottom in between), plus the solved face normal.
 function solveF2LFromState(state) {
     let best = null;
     for (const [a, s] of FACES) {
@@ -1099,12 +1009,8 @@ function solveF2LFromState(state) {
     if (!best) return null;
     const { a, s } = best;
     const faceVec = [0,0,0]; faceVec[faceAxisIndex(a)] = s;
-    const g = findOrientTo(faceVec);
-    if (!g) return null;
-    const macros = conjugateMacros(g);
-    const middleHomes = middleEdgesOf(a);
 
-    const firstLayer = [];
+    const firstLayer = [], middle = [];
     let work = Uint16Array.from(state);
     const applyMoves = (st, moves) => { let r = st; for (const m of moves) r = applyStateMove(r, QUARTER_MOVE[m.axis + m.layer + m.dir]); return r; };
 
@@ -1112,16 +1018,18 @@ function solveF2LFromState(state) {
     const cross = solveSubset(placed, subsetCodes(work, placed));
     if (cross === null) return null;
     let q = toQuarters(cross); firstLayer.push(...q); work = applyMoves(work, q);
-    for (const home of firstCornersOf(a, s)) {
-        placed.push(home);
-        const step = solveSubset(placed, subsetCodes(work, placed));
+
+    // Four F2L pairs. The middle edge that belongs with a bottom corner shares its two side faces and
+    // sits in the middle layer, so it's the corner home with the cross-face coordinate zeroed.
+    for (const corner of firstCornersOf(a, s)) {
+        const edge = corner.slice(); edge[faceAxisIndex(a)] = 0;
+        placed.push(corner, edge);
+        const step = solveSubset(placed, subsetCodes(work, placed), 10); // deeper search: a pair can take more turns to seat
         if (step === null) return null;
-        q = toQuarters(step); firstLayer.push(...q); work = applyMoves(work, q);
+        q = toQuarters(step); middle.push(...q); work = applyMoves(work, q);
     }
-    const middle = solveMiddle(middleHomes, macros, subsetCodes(work, middleHomes));
-    if (middle === null) return null;
-    const afterF2L = applyMoves(work, middle);
-    const lastLayer = solveLastLayer(afterF2L, faceVec);
+
+    const lastLayer = solveLastLayer(work, faceVec);
     if (lastLayer === null) return null;
     return { firstLayer, middle, lastLayer, faceVec };
 }
