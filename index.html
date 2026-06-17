@@ -58,6 +58,17 @@
         }
         #moves.show-toggle #movesToggle { display: block; }
         #moves.expanded #movesToggle { transform: rotate(180deg); }
+        /* Solve timer: fixed just under the (collapsed) moves panel. It sits at a lower z-index than
+           the panel, so expanding the panel overlaps it from above instead of shoving it down. */
+        #solveTime {
+            position: fixed; left: 50%; transform: translateX(-50%); z-index: 9;
+            display: none; white-space: nowrap;
+            padding: 6px 12px; border-radius: 8px;
+            background: rgba(255,255,255,0.85); color: #333;
+            font: 600 14px ui-monospace, "SF Mono", Menlo, monospace;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        #solveTime.visible { display: block; }
         .slider {
             display: flex; flex-direction: column; gap: 5px;
             padding: 8px 10px; border-radius: 8px;
@@ -152,6 +163,7 @@
         <button id="movesToggle" aria-label="Expand moves">&#9662;</button>
     </div>
 </div>
+<div id="solveTime"></div>
 
 <div id="sliders">
     <div class="slider">
@@ -438,6 +450,7 @@ function startNextTurn() {
     if (activeTurn || activeFlip) return;
     if (turnQueue.length === 0) {
         isBusy = false;
+        if (solveTiming) { showSolveTime(performance.now() - solveStartTime); solveTiming = false; }
         refreshButtons();
         return;
     }
@@ -562,6 +575,7 @@ function showMoves(label, moves) {
 function scramble(moves) {
     if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
     isBusy = true;
+    solveTiming = false; solveTimeEl.classList.remove('visible'); // not a solve; clear any old time
     resetCamera(); // start each scramble from the canonical view
     refreshButtons();
 
@@ -592,6 +606,17 @@ const movesEl = document.getElementById('moves');
 const movesTextEl = document.getElementById('movesText');
 const movesToggleEl = document.getElementById('movesToggle');
 movesToggleEl.addEventListener('click', () => movesEl.classList.toggle('expanded'));
+
+// Solve timer: wall-clock time of the solve animation, shown once it finishes.
+const solveTimeEl = document.getElementById('solveTime');
+let solveTiming = false;      // true only while a Solve (not a Scramble) is animating
+let solveStartTime = 0;
+let solvePanelBottom = 0;     // bottom of the collapsed moves panel, captured when the solve begins
+function showSolveTime(ms) {
+    solveTimeEl.textContent = `Solved in ${(ms / 1000).toFixed(3)}s`;
+    solveTimeEl.style.top = (solvePanelBottom + 8) + 'px'; // fixed anchor; expanding the panel won't shift it
+    solveTimeEl.classList.add('visible');
+}
 
 // Algorithms popup
 const algoBtn = document.getElementById('algoBtn');
@@ -1070,6 +1095,9 @@ function solve() {
     refreshButtons();
     resetCamera();
     showMoves('Solve', firstLayer.concat(middle).concat(lastLayer));
+    solveTimeEl.classList.remove('visible');          // hide any previous time
+    solvePanelBottom = movesEl.getBoundingClientRect().bottom; // collapsed position to anchor the timer
+    solveStartTime = performance.now(); solveTiming = true; // start the clock
 
     // A quaternion that carries the solved face onto the bottom of the view.
     const C = new THREE.Vector3(faceVec[0], faceVec[1], faceVec[2]);
