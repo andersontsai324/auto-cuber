@@ -89,6 +89,26 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
         }
         #algoBtn:hover { background: #7048e8; }
+        #manualSolveBtn {
+            padding: 10px 18px; font: 600 15px system-ui, -apple-system, sans-serif;
+            color: #fff; background: #495057;
+            border: none; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        #manualSolveBtn:hover { background: #343a40; }
+        /* User Solve Mode: full-screen cover, above the cube (unpositioned canvas) but below the
+           fixed control panels (z-index 10), so Scramble / the mode toggle stay reachable. */
+        #userSolveOverlay {
+            display: none; position: fixed; inset: 0; z-index: 5;
+            flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+            background: #16181d; color: #f1f3f5; text-align: center;
+        }
+        #userSolveOverlay.visible { display: flex; }
+        #userSolveTimeBig {
+            font: 700 min(18vw, 140px)/1 ui-monospace, "SF Mono", Menlo, monospace;
+            letter-spacing: 1px; font-variant-numeric: tabular-nums;
+        }
+        #userSolveHint { font: 500 16px system-ui, -apple-system, sans-serif; color: #adb5bd; }
         .modal-overlay {
             display: none; position: fixed; inset: 0; z-index: 100;
             background: rgba(0,0,0,0.5);
@@ -175,6 +195,12 @@
         <input id="lighting" type="range" min="1" max="5" step="1" value="3">
     </div>
     <button id="algoBtn">Algorithms</button>
+    <button id="manualSolveBtn">Manual Solve</button>
+</div>
+
+<div id="userSolveOverlay">
+    <div id="userSolveTimeBig">0.000</div>
+    <div id="userSolveHint">Press space to start</div>
 </div>
 
 <div id="algoModal" class="modal-overlay">
@@ -274,6 +300,11 @@ const PHI_EPS = 0.05; // keeps the camera from flipping at the poles
 // --- Scramble / programmatic-turn state ---
 let isBusy = false;     // locks mouse input while the cube is auto-turning
 const turnQueue = [];   // pending { axis, layer, dir } moves to play out
+
+// User Solve Mode (speedcubing-style timer): 'ready' (inspecting) -> 'running' (timing, cube hidden)
+// -> 'finished' (time shown); 'scrambling' is a brief transit state while a fresh scramble plays out.
+let userSolveMode = false;
+let userSolveState = 'ready';
 let activeTurn = null;  // the turn currently being animated
 let TURN_STEPS = 9;     // animation frames per 90° turn (smaller = faster); set by Spin speed
 const history = [];     // every turn taken (scramble + manual), for the solver to reverse
@@ -451,6 +482,11 @@ function startNextTurn() {
     if (turnQueue.length === 0) {
         isBusy = false;
         if (solveTiming) { showSolveTime(performance.now() - solveStartTime); solveTiming = false; }
+        if (userSolveMode && userSolveState === 'scrambling') {
+            userSolveState = 'ready';
+            userSolveHintEl.textContent = 'Press space to start';
+            userSolveTimeBigEl.textContent = '0.000';
+        }
         refreshButtons();
         return;
     }
@@ -572,10 +608,29 @@ function showMoves(label, moves) {
 }
 
 // Queue a random scramble of `moves` outer-face turns. Always solvable.
+// Snap every cubie back to its exact home position and unrotated orientation, and forget any move
+// history. Used right before generating a new scramble, so "Scramble" always means "scramble from a
+// perfectly solved cube" — never on top of whatever the cube happened to be showing (leftover partial
+// moves, or a cube that only looked solved "up to a whole-cube rotation" after a manual slice turn).
+function hardResetToSolved() {
+    cubies.forEach(c => {
+        c.position.set(c.userData.x * spacing, c.userData.y * spacing, c.userData.z * spacing);
+        c.quaternion.identity();
+    });
+    history.length = 0;
+}
+
 function scramble(moves) {
     if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
+    if (userSolveMode && userSolveState === 'running') return; // can't rescramble mid-solve
     isBusy = true;
+    hardResetToSolved(); // guarantee the scramble we're about to generate starts from solved
     solveTiming = false; solveTimeEl.classList.remove('visible'); // not a solve; clear any old time
+    if (userSolveMode) {                          // new scramble: show the cube scrambling again
+        stopUserTimerLoop();
+        userSolveState = 'scrambling';
+        userSolveOverlay.classList.remove('visible');
+    }
     resetCamera(); // start each scramble from the canonical view
     refreshButtons();
 
@@ -618,6 +673,74 @@ function showSolveTime(ms) {
     solveTimeEl.classList.add('visible');
 }
 
+// ----- User Solve Mode: a speedcubing-style practice timer -----
+// The virtual cube is only there to show the scramble; the person solves a real cube (or just
+// practises reading scrambles) while this app times them, exactly like a standalone cube timer.
+const manualSolveBtn = document.getElementById('manualSolveBtn');
+const userSolveOverlay = document.getElementById('userSolveOverlay');
+const userSolveTimeBigEl = document.getElementById('userSolveTimeBig');
+const userSolveHintEl = document.getElementById('userSolveHint');
+let userTimerStart = 0;
+let userTimerRAF = null;
+const fmtBigTime = ms => (ms / 1000).toFixed(3);
+
+function enterUserSolveMode() {
+    if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
+    userSolveMode = true;
+    userSolveState = 'ready';
+    manualSolveBtn.textContent = 'Automatic Solve';
+    manualSolveBtn.blur();
+    userSolveHintEl.textContent = 'Press space to start';
+    userSolveTimeBigEl.textContent = '0.000';
+    refreshButtons();
+}
+function exitUserSolveMode() {
+    if (userSolveState === 'running') return; // don't exit out from under a running timer
+    stopUserTimerLoop();
+    userSolveMode = false;
+    userSolveState = 'ready';
+    userSolveOverlay.classList.remove('visible');
+    manualSolveBtn.textContent = 'Manual Solve';
+    manualSolveBtn.blur();
+    refreshButtons();
+}
+manualSolveBtn.addEventListener('click', () => { userSolveMode ? exitUserSolveMode() : enterUserSolveMode(); });
+
+function startUserTimer() {
+    if (!userSolveMode || userSolveState !== 'ready' || isBusy) return;
+    userSolveState = 'running';
+    userTimerStart = performance.now();
+    userSolveTimeBigEl.textContent = '0.000';
+    userSolveHintEl.textContent = 'Press space to stop';
+    userSolveOverlay.classList.add('visible'); // hide the cube behind the big timer
+    refreshButtons();
+    userTimerRAF = requestAnimationFrame(tickUserTimer);
+}
+function tickUserTimer() {
+    if (userSolveState !== 'running') return;
+    userSolveTimeBigEl.textContent = fmtBigTime(performance.now() - userTimerStart);
+    userTimerRAF = requestAnimationFrame(tickUserTimer);
+}
+function stopUserTimerLoop() {
+    if (userTimerRAF !== null) { cancelAnimationFrame(userTimerRAF); userTimerRAF = null; }
+}
+function stopUserTimer() {
+    if (!userSolveMode || userSolveState !== 'running') return;
+    const elapsed = performance.now() - userTimerStart;
+    stopUserTimerLoop();
+    userSolveState = 'finished';
+    userSolveTimeBigEl.textContent = fmtBigTime(elapsed);
+    userSolveHintEl.textContent = 'New scramble, or Automatic Solve to exit';
+    refreshButtons();
+}
+// Spacebar starts/stops the timer (ignore auto-repeat from holding the key down).
+window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || !userSolveMode || e.repeat) return;
+    e.preventDefault(); // also stops space from re-clicking a focused button
+    if (userSolveState === 'ready') startUserTimer();
+    else if (userSolveState === 'running') stopUserTimer();
+});
+
 // Algorithms popup
 const algoBtn = document.getElementById('algoBtn');
 const algoModal = document.getElementById('algoModal');
@@ -649,8 +772,17 @@ function isSolved() {
 function refreshButtons() {
     const solved = isSolved();
     if (solved) history.length = 0; // once solved, prior moves are irrelevant — forget them
-    scrambleBtn.disabled = isBusy;
-    solveBtn.disabled = isBusy || solved;
+    const running = userSolveMode && userSolveState === 'running';
+    scrambleBtn.disabled = isBusy || running;
+    difficultyEl.disabled = isBusy || running;
+    manualSolveBtn.disabled = isBusy || running;
+    if (userSolveMode) {
+        solveBtn.textContent = running ? 'Stop Timer' : 'Start Timer';
+        solveBtn.disabled = isBusy || (userSolveState === 'finished');
+    } else {
+        solveBtn.textContent = 'Solve';
+        solveBtn.disabled = isBusy || solved;
+    }
 }
 
 // ===== Shortest-path solver (bidirectional BFS over a logical cube model) =====
@@ -1113,7 +1245,11 @@ function solve() {
 }
 
 scrambleBtn.addEventListener('click', () => scramble(parseInt(difficultyEl.value, 10)));
-solveBtn.addEventListener('click', solve);
+solveBtn.addEventListener('click', () => {
+    if (!userSolveMode) { solve(); return; }
+    if (userSolveState === 'ready') startUserTimer();
+    else if (userSolveState === 'running') stopUserTimer();
+});
 refreshButtons();
 
 // Spin speed: level 1-5 sets how fast dragging spins the whole cube AND turns a layer
