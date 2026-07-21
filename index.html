@@ -69,6 +69,40 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
         #solveTime.visible { display: block; }
+        /* Solve times list: user solves only (User Solve Mode, spacebar-timed). Never records
+           Automatic Solve — that has its own separate #solveTime readout. */
+        #solveTimesPanel {
+            display: none; position: fixed; top: 16px; right: 16px; z-index: 10;
+            width: 190px;
+            font: 600 15px system-ui, -apple-system, sans-serif;
+        }
+        #solveTimesPanel.visible { display: block; }
+        #solveTimesPanel .card {
+            padding: 10px 12px; border-radius: 8px;
+            background: rgba(255,255,255,0.85); color: #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        #solveTimesPanel h3 {
+            margin: 0 0 8px; font-size: 14px; color: #495057;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #clearTimesBtn {
+            border: none; background: none; cursor: pointer;
+            font: 600 12px system-ui, -apple-system, sans-serif; color: #868e96; padding: 0;
+        }
+        #clearTimesBtn:hover { color: #e03131; text-decoration: underline; }
+        #timesEmpty { font: 500 13px system-ui, -apple-system, sans-serif; color: #868e96; }
+        #timesList {
+            list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto;
+            font: 500 14px ui-monospace, "SF Mono", Menlo, monospace;
+        }
+        #timesList li {
+            display: flex; justify-content: space-between; gap: 8px;
+            padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,0.08);
+        }
+        #timesList li:last-child { border-bottom: none; }
+        #timesList li span:first-child { color: #868e96; }
+        #timesList li.best span:last-child { color: #2f9e44; font-weight: 700; }
         .slider {
             display: flex; flex-direction: column; gap: 5px;
             padding: 8px 10px; border-radius: 8px;
@@ -201,6 +235,14 @@
 <div id="userSolveOverlay">
     <div id="userSolveTimeBig">0.000</div>
     <div id="userSolveHint">Press space to start</div>
+</div>
+
+<div id="solveTimesPanel">
+    <div class="card">
+        <h3>Solve Times <button id="clearTimesBtn" title="Clear all times">Clear</button></h3>
+        <div id="timesEmpty">No solves yet</div>
+        <ol id="timesList"></ol>
+    </div>
 </div>
 
 <div id="algoModal" class="modal-overlay">
@@ -628,6 +670,7 @@ function scramble(moves) {
     solveTiming = false; solveTimeEl.classList.remove('visible'); // not a solve; clear any old time
     if (userSolveMode) {                          // new scramble: show the cube scrambling again
         stopUserTimerLoop();
+        resetSpaceHold();
         userSolveState = 'scrambling';
         userSolveOverlay.classList.remove('visible');
     }
@@ -684,22 +727,51 @@ let userTimerStart = 0;
 let userTimerRAF = null;
 const fmtBigTime = ms => (ms / 1000).toFixed(3);
 
+// Times list: only ever appended to from stopUserTimer() below (a spacebar-timed user solve).
+// Automatic Solve uses the separate #solveTime readout and never touches this list.
+const solveTimesPanel = document.getElementById('solveTimesPanel');
+const timesListEl = document.getElementById('timesList');
+const timesEmptyEl = document.getElementById('timesEmpty');
+const clearTimesBtn = document.getElementById('clearTimesBtn');
+let userSolveTimes = []; // ms, in the order solved
+function renderSolveTimes() {
+    const has = userSolveTimes.length > 0;
+    timesEmptyEl.style.display = has ? 'none' : 'block';
+    timesListEl.style.display = has ? '' : 'none';
+    timesListEl.innerHTML = '';
+    if (!has) return;
+    const best = Math.min(...userSolveTimes);
+    userSolveTimes.forEach((ms, i) => {
+        const li = document.createElement('li');
+        if (ms === best) li.classList.add('best');
+        li.innerHTML = `<span>#${i + 1}</span><span>${fmtBigTime(ms)}s</span>`;
+        timesListEl.appendChild(li);
+    });
+    timesListEl.scrollTop = timesListEl.scrollHeight; // keep the newest solve in view
+}
+clearTimesBtn.addEventListener('click', () => { userSolveTimes = []; renderSolveTimes(); });
+renderSolveTimes();
+
 function enterUserSolveMode() {
     if (isBusy || dragStage !== "IDLE") return; // don't interrupt an in-progress turn
     userSolveMode = true;
     userSolveState = 'ready';
+    resetSpaceHold();
     manualSolveBtn.textContent = 'Automatic Solve';
     manualSolveBtn.blur();
     userSolveHintEl.textContent = 'Press space to start';
     userSolveTimeBigEl.textContent = '0.000';
+    solveTimesPanel.classList.add('visible');
     refreshButtons();
 }
 function exitUserSolveMode() {
     if (userSolveState === 'running') return; // don't exit out from under a running timer
     stopUserTimerLoop();
+    resetSpaceHold();
     userSolveMode = false;
     userSolveState = 'ready';
     userSolveOverlay.classList.remove('visible');
+    solveTimesPanel.classList.remove('visible');
     manualSolveBtn.textContent = 'Manual Solve';
     manualSolveBtn.blur();
     refreshButtons();
@@ -731,15 +803,30 @@ function stopUserTimer() {
     userSolveState = 'finished';
     userSolveTimeBigEl.textContent = fmtBigTime(elapsed);
     userSolveHintEl.textContent = 'New scramble, or Automatic Solve to exit';
+    userSolveTimes.push(elapsed);   // record it — this is a real user solve, unlike Automatic Solve
+    renderSolveTimes();
     refreshButtons();
 }
-// Spacebar starts/stops the timer (ignore auto-repeat from holding the key down).
+// Spacebar to start: press and HOLD arms it, and the timer only starts on release — this avoids
+// starting the instant someone taps down on space while they're still settling their hand. Stopping
+// is a plain press (no hold needed), matching how real speedcubing timers behave.
+let spaceHeld = false; // armed: space is down while we're in 'ready', waiting for the release
+function resetSpaceHold() { spaceHeld = false; }
 window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Space' || !userSolveMode || e.repeat) return;
+    if (e.code !== 'Space' || !userSolveMode) return;
     e.preventDefault(); // also stops space from re-clicking a focused button
-    if (userSolveState === 'ready') startUserTimer();
-    else if (userSolveState === 'running') stopUserTimer();
+    if (userSolveState === 'running') { stopUserTimer(); return; }
+    if (userSolveState !== 'ready' || e.repeat) return; // ignore repeats while held, and other states
+    spaceHeld = true;
+    refreshButtons();
 });
+window.addEventListener('keyup', (e) => {
+    if (e.code !== 'Space' || !spaceHeld) return;
+    spaceHeld = false;
+    if (userSolveState === 'ready') startUserTimer();
+    else refreshButtons();
+});
+window.addEventListener('blur', resetSpaceHold); // don't leave it stuck armed if focus is lost mid-hold
 
 // Algorithms popup
 const algoBtn = document.getElementById('algoBtn');
@@ -777,8 +864,9 @@ function refreshButtons() {
     difficultyEl.disabled = isBusy || running;
     manualSolveBtn.disabled = isBusy || running;
     if (userSolveMode) {
-        solveBtn.textContent = running ? 'Stop Timer' : 'Start Timer';
-        solveBtn.disabled = isBusy || (userSolveState === 'finished');
+        // Starting is spacebar-only; the button is only ever clickable to stop a running solve.
+        solveBtn.textContent = running ? 'Stop Timer' : (spaceHeld ? 'Release to Start' : 'Press Space to Start');
+        solveBtn.disabled = isBusy || !running;
     } else {
         solveBtn.textContent = 'Solve';
         solveBtn.disabled = isBusy || solved;
@@ -1247,8 +1335,7 @@ function solve() {
 scrambleBtn.addEventListener('click', () => scramble(parseInt(difficultyEl.value, 10)));
 solveBtn.addEventListener('click', () => {
     if (!userSolveMode) { solve(); return; }
-    if (userSolveState === 'ready') startUserTimer();
-    else if (userSolveState === 'running') stopUserTimer();
+    if (userSolveState === 'running') stopUserTimer(); // starting the timer is spacebar-only
 });
 refreshButtons();
 
