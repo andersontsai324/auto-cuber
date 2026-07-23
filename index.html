@@ -62,13 +62,19 @@
            the panel, so expanding the panel overlaps it from above instead of shoving it down. */
         #solveTime {
             position: fixed; left: 50%; transform: translateX(-50%); z-index: 9;
-            display: none; white-space: nowrap;
-            padding: 6px 12px; border-radius: 8px;
-            background: rgba(255,255,255,0.85); color: #333;
-            font: 600 14px ui-monospace, "SF Mono", Menlo, monospace;
+            display: none; max-width: min(92vw, 460px);
+            padding: 10px 14px; border-radius: 8px; text-align: center;
+            background: rgba(255,255,255,0.92); color: #333;
+            font: 600 15px ui-monospace, "SF Mono", Menlo, monospace;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
         #solveTime.visible { display: block; }
+        #solveMoveCount { margin-top: 2px; font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; color: #777; }
+        #solveBreakdown { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1); text-align: left; }
+        #solveBreakdown .seg { display: flex; gap: 6px; margin: 3px 0; font-size: 12px; line-height: 1.4; }
+        #solveBreakdown .seg-label { flex: 0 0 auto; font-weight: 700; color: #495057; white-space: nowrap; }
+        #solveBreakdown .seg-moves { color: #333; word-break: break-word; font-weight: 500; }
+        #solveBreakdown .seg.auf .seg-label, #solveBreakdown .seg.auf .seg-moves { color: #adb5bd; font-weight: 500; }
         /* Solve times list: user solves only (User Solve Mode, spacebar-timed). Never records
            Automatic Solve — that has its own separate #solveTime readout. */
         #solveTimesPanel {
@@ -217,7 +223,11 @@
         <button id="movesToggle" aria-label="Expand moves">&#9662;</button>
     </div>
 </div>
-<div id="solveTime"></div>
+<div id="solveTime">
+    <div id="solveTimeLine"></div>
+    <div id="solveMoveCount"></div>
+    <div id="solveBreakdown"></div>
+</div>
 
 <div id="sliders">
     <div class="slider">
@@ -705,13 +715,32 @@ const movesTextEl = document.getElementById('movesText');
 const movesToggleEl = document.getElementById('movesToggle');
 movesToggleEl.addEventListener('click', () => movesEl.classList.toggle('expanded'));
 
-// Solve timer: wall-clock time of the solve animation, shown once it finishes.
+// Solve timer: wall-clock time of the solve animation, shown once it finishes, plus a move count and
+// a phase-by-phase breakdown (naming the exact OLL/PLL algorithm used, since those are the only
+// phases with a fixed, named algorithm — Cross and F2L are shortest-path search, not memorised).
 const solveTimeEl = document.getElementById('solveTime');
+const solveTimeLineEl = document.getElementById('solveTimeLine');
+const solveMoveCountEl = document.getElementById('solveMoveCount');
+const solveBreakdownEl = document.getElementById('solveBreakdown');
 let solveTiming = false;      // true only while a Solve (not a Scramble) is animating
 let solveStartTime = 0;
 let solvePanelBottom = 0;     // bottom of the collapsed moves panel, captured when the solve begins
+let pendingSolveSegments = null; // phase breakdown for the solve currently animating
 function showSolveTime(ms) {
-    solveTimeEl.textContent = `Solved in ${(ms / 1000).toFixed(3)}s`;
+    solveTimeLineEl.textContent = `Solved in ${(ms / 1000).toFixed(3)}s`;
+    const segments = pendingSolveSegments || [];
+    const totalMoves = toNotation(segments.flatMap(s => s.moves)).length;
+    solveMoveCountEl.textContent = `${totalMoves} moves`;
+    solveBreakdownEl.innerHTML = '';
+    for (const seg of segments) {
+        const row = document.createElement('div');
+        row.className = 'seg' + (seg.label === 'AUF' ? ' auf' : '');
+        const lab = document.createElement('span'); lab.className = 'seg-label'; lab.textContent = seg.label + ':';
+        const mv = document.createElement('span'); mv.className = 'seg-moves';
+        mv.textContent = seg.moves.length ? toNotation(seg.moves).join(' ') : '(none)';
+        row.appendChild(lab); row.appendChild(mv);
+        solveBreakdownEl.appendChild(row);
+    }
     solveTimeEl.style.top = (solvePanelBottom + 8) + 'px'; // fixed anchor; expanding the panel won't shift it
     solveTimeEl.classList.add('visible');
 }
@@ -1186,22 +1215,24 @@ function buildLLMaps(gf, llPos, Lunit) {
     const Uc = conjugateMove(gf, { axis:'y', layer:1, dir:-1 });      // conjugated U = a last-layer turn
     const UcSeq = [[], [Uc], [Uc, Uc], [Uc, Uc, Uc]];                 // U^0 .. U^3 about the last layer
     const ollMap = new Map(), pllMap = new Map();
-    for (const str of Object.values(OLL_ALGS)) {
+    for (const [name, str] of Object.entries(OLL_ALGS)) {
         const ac = parseAlg(str).map(m => conjugateMove(gf, m));
         const sig = ollSignature(applyLLMoves(solved, invertMoves(ac)), llPos, Lunit);
-        if (!ollMap.has(sig)) ollMap.set(sig, ac);
+        if (!ollMap.has(sig)) ollMap.set(sig, { alg: ac, name: `OLL ${name}` });
     }
-    for (const str of Object.values(PLL_ALGS)) {
+    for (const [name, str] of Object.entries(PLL_ALGS)) {
         const ac = parseAlg(str).map(m => conjugateMove(gf, m));
         for (let b = 0; b < 4; b++) {                                 // each alg also covers 4 post-AUFs
             const caseState = applyLLMoves(applyLLMoves(solved, UcSeq[(4 - b) % 4]), invertMoves(ac)); // alg^-1 . U^-b . solved
             const sig = pllSignature(caseState, llPos);
-            if (!pllMap.has(sig)) pllMap.set(sig, { alg: ac, postAuf: b });
+            if (!pllMap.has(sig)) pllMap.set(sig, { alg: ac, postAuf: b, name: `${name} Perm` });
         }
     }
     return { ollMap, pllMap, UcSeq };
 }
-// Solve the last layer of a centres-home, F2L-complete state. Returns moves in that frame, or null.
+// Solve the last layer of a centres-home, F2L-complete state. Returns { moves, segments } where
+// segments names each named algorithm actually used (OLL #, PLL name) plus any AUF setup turns, or
+// null if no case matched.
 function solveLastLayer(state, faceVec) {
     const a = faceVec[0] ? 'x' : (faceVec[1] ? 'y' : 'z');
     const Lunit = [-faceVec[0], -faceVec[1], -faceVec[2]];            // last layer is opposite the solved face
@@ -1209,13 +1240,18 @@ function solveLastLayer(state, faceVec) {
     const gf = findOrientTo(faceVec);
     const llPos = llPositions(a, ls);
     const { ollMap, pllMap, UcSeq } = buildLLMaps(gf, llPos, Lunit);
-    let s = state, moves = [];
+    let s = state, moves = [], segments = [];
+    const pushAUF = k => { if (k) segments.push({ label: 'AUF', moves: UcSeq[k].slice() }); };
     if (!llOriented(s, llPos, Lunit)) {                              // OLL (skip if already oriented)
         let done = false;
         for (let k = 0; k < 4; k++) {
             const t = applyLLMoves(s, UcSeq[k]);
             const hit = ollMap.get(ollSignature(t, llPos, Lunit));
-            if (hit) { moves.push(...UcSeq[k], ...hit); s = applyLLMoves(t, hit); done = true; break; }
+            if (hit) {
+                pushAUF(k);
+                segments.push({ label: hit.name, moves: hit.alg.slice() });
+                moves.push(...UcSeq[k], ...hit.alg); s = applyLLMoves(t, hit.alg); done = true; break;
+            }
         }
         if (!done) return null;
     }
@@ -1226,13 +1262,21 @@ function solveLastLayer(state, faceVec) {
         for (let k = 0; k < 4; k++) {
             const t = applyLLMoves(s, UcSeq[k]);
             const hit = pllMap.get(pllSignature(t, llPos));
-            if (hit) { const post = UcSeq[hit.postAuf]; moves.push(...UcSeq[k], ...hit.alg, ...post); s = applyLLMoves(applyLLMoves(t, hit.alg), post); done = true; break; }
+            if (hit) {
+                const post = UcSeq[hit.postAuf];
+                pushAUF(k);
+                segments.push({ label: hit.name, moves: hit.alg.slice() });
+                moves.push(...UcSeq[k], ...hit.alg, ...post);
+                s = applyLLMoves(applyLLMoves(t, hit.alg), post);
+                pushAUF(hit.postAuf);
+                done = true; break;
+            }
         }
         if (!done) return null;
     }
     let done = false;                                                // final AUF
-    for (let k = 0; k < 4; k++) { const t = applyLLMoves(s, UcSeq[k]); if (llSolved(t, llPos)) { moves.push(...UcSeq[k]); s = t; done = true; break; } }
-    return done ? moves : null;
+    for (let k = 0; k < 4; k++) { const t = applyLLMoves(s, UcSeq[k]); if (llSolved(t, llPos)) { pushAUF(k); moves.push(...UcSeq[k]); s = t; done = true; break; } }
+    return done ? { moves, segments } : null;
 }
 
 
@@ -1276,7 +1320,7 @@ function solveF2LFromState(state) {
 
     const lastLayer = solveLastLayer(work, faceVec);
     if (lastLayer === null) return null;
-    return { firstLayer, middle, lastLayer, faceVec };
+    return { firstLayer, middle, lastLayer: lastLayer.moves, llSegments: lastLayer.segments, faceVec };
 }
 
 // All 12 first-two-layer pieces for a given face.
@@ -1309,6 +1353,7 @@ function solve() {
     const firstLayer = plan.firstLayer.map(moves);
     const middle = plan.middle.map(moves);
     const lastLayer = plan.lastLayer.map(moves);
+    const llSegments = plan.llSegments.map(seg => ({ label: seg.label, moves: seg.moves.map(moves) }));
     const faceVec = bfsMatVec(g, plan.faceVec);
 
     isBusy = true;
@@ -1317,6 +1362,9 @@ function solve() {
     showMoves('Solve', firstLayer.concat(middle).concat(lastLayer));
     solveTimeEl.classList.remove('visible');          // hide any previous time
     solvePanelBottom = movesEl.getBoundingClientRect().bottom; // collapsed position to anchor the timer
+    // Cross and F2L come from shortest-path search (no fixed, named algorithm); OLL/PLL/AUF do, and
+    // llSegments already names the exact case used for each — shown together once the solve finishes.
+    pendingSolveSegments = [{ label: 'Cross', moves: firstLayer }, { label: 'F2L', moves: middle }].concat(llSegments);
     solveStartTime = performance.now(); solveTiming = true; // start the clock
 
     // A quaternion that carries the solved face onto the bottom of the view.
@@ -1340,10 +1388,15 @@ solveBtn.addEventListener('click', () => {
 refreshButtons();
 
 // Spin speed: level 1-5 sets how fast dragging spins the whole cube AND turns a layer
+// Fixed boost applied on top of every level, so the whole slider range runs faster (useful if a
+// given machine/browser can't hit 60fps — fewer animation frames per turn means less real time lost
+// to display throttling, independent of which level is selected).
+const SPIN_BOOST_STEPS = 2;   // fewer animation frames per 90° turn, at every level
+const SPIN_BOOST_RATE = 0.004; // extra drag responsiveness, at every level
 function setSpinSpeed(level) {
-    ORBIT_SPEED = level * 0.004;       // whole-cube orbit
-    TURN_DRAG_SPEED = level * 0.0017;  // individual layer (level 3 ~ original 0.005)
-    TURN_STEPS = 15 - level * 2;       // solve/scramble turn speed (level 3 ~ original 9 frames)
+    ORBIT_SPEED = level * 0.004 + SPIN_BOOST_RATE;              // whole-cube orbit
+    TURN_DRAG_SPEED = level * 0.0017 + SPIN_BOOST_RATE * 0.425; // individual layer
+    TURN_STEPS = Math.max(2, 15 - level * 2 - SPIN_BOOST_STEPS); // solve/scramble turn speed
     spinValEl.textContent = level;
 }
 // Lighting: level 1-5 scales all three lights (level 3 = the default brightness)
