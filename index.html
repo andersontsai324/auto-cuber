@@ -63,12 +63,30 @@
         #solveTime {
             position: fixed; left: 50%; transform: translateX(-50%); z-index: 9;
             display: none; max-width: min(92vw, 460px);
-            padding: 10px 14px; border-radius: 8px; text-align: center;
+            padding: 10px 30px 10px 14px; border-radius: 8px; text-align: center;
             background: rgba(255,255,255,0.92); color: #333;
             font: 600 15px ui-monospace, "SF Mono", Menlo, monospace;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
         }
         #solveTime.visible { display: block; }
+        #solveTimeToggle {
+            position: absolute; top: 8px; right: 8px;
+            border: none; background: none; cursor: pointer;
+            font-size: 13px; color: #868e96; padding: 2px; line-height: 1;
+            transition: transform 0.15s ease;
+        }
+        #solveTimeToggle:hover { color: #333; }
+        #solveTime.collapsed #solveTimeToggle { transform: rotate(-90deg); }
+        #solveTime.collapsed #solveMoveCount, #solveTime.collapsed #solveBreakdown { display: none; }
+        #solveBlocked {
+            position: fixed; left: 50%; transform: translateX(-50%); z-index: 9;
+            display: none; max-width: min(92vw, 420px);
+            padding: 10px 14px; border-radius: 8px; text-align: center;
+            background: rgba(255,245,245,0.97); color: #c92a2a; border: 1px solid rgba(224,49,49,0.3);
+            font: 600 13px system-ui, -apple-system, sans-serif; line-height: 1.4;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        #solveBlocked.visible { display: block; }
         #solveMoveCount { margin-top: 2px; font: 500 12px ui-monospace, "SF Mono", Menlo, monospace; color: #777; }
         #solveBreakdown { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.1); text-align: left; }
         #solveBreakdown .seg { display: flex; gap: 6px; margin: 3px 0; font-size: 12px; line-height: 1.4; }
@@ -103,12 +121,33 @@
             font: 500 14px ui-monospace, "SF Mono", Menlo, monospace;
         }
         #timesList li {
-            display: flex; justify-content: space-between; gap: 8px;
+            position: relative;
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
             padding: 3px 0; border-bottom: 1px solid rgba(0,0,0,0.08);
         }
         #timesList li:last-child { border-bottom: none; }
-        #timesList li span:first-child { color: #868e96; }
-        #timesList li.best span:last-child { color: #2f9e44; font-weight: 700; }
+        #timesList li .idx { color: #868e96; }
+        #timesList li .val { margin-right: auto; padding-left: 6px; }
+        #timesList li.best .val { color: #2f9e44; font-weight: 700; }
+        #timesList .row-dots {
+            flex: none; border: none; cursor: pointer;
+            font-size: 18px; font-weight: 700; color: #495057; background: rgba(0,0,0,0.06);
+            padding: 1px 7px; line-height: 1.4; border-radius: 5px;
+        }
+        #timesList .row-dots:hover, #timesList .row-dots.active { color: #fff; background: #495057; }
+        #timesList .row-dropdown {
+            display: none; position: fixed; z-index: 50;
+            background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+            overflow: hidden; min-width: 90px;
+        }
+        #timesList .row-dropdown.open { display: block; }
+        #timesList .row-delete {
+            display: block; width: 100%; padding: 8px 12px; border: none; background: none;
+            cursor: pointer; font: 700 13px system-ui, -apple-system, sans-serif;
+            color: #e03131; text-align: left;
+        }
+        #timesList .row-delete:hover { background: #fff0f0; }
         .slider {
             display: flex; flex-direction: column; gap: 5px;
             padding: 8px 10px; border-radius: 8px;
@@ -183,6 +222,38 @@
             white-space: nowrap;
         }
         .node.cross { background: #1971c2; }
+        .node.clickable { cursor: pointer; border: none; font-family: inherit; transition: transform 0.1s, box-shadow 0.1s; }
+        .node.clickable:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,0,0,0.28); }
+        .node.clickable:active { transform: translateY(0); }
+        .node-hint { font-size: 11px; font-weight: 500; opacity: 0.85; margin-left: 4px; }
+        .alg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .alg-list li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: #f1f3f5; }
+        .alg-num {
+            flex: none; width: 24px; height: 24px; border-radius: 50%; background: #4263eb; color: #fff;
+            font: 700 12px system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center;
+        }
+        .alg-info { flex: 1; min-width: 0; }
+        .alg-name { font: 700 14px system-ui, -apple-system, sans-serif; color: #212529; margin-bottom: 3px; }
+        .alg-str { font: 500 13px ui-monospace, "SF Mono", Menlo, monospace; color: #495057; word-break: break-word; }
+        .alg-list li.alg-disabled { background: #fff0f0; }
+        .alg-list li.alg-disabled .alg-name, .alg-list li.alg-disabled .alg-str { opacity: 0.5; }
+        .alg-toggle { flex: none; position: relative; width: 40px; height: 22px; margin-left: 6px; align-self: center; }
+        .alg-toggle input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+        .alg-toggle .track { position: absolute; inset: 0; background: #ced4da; border-radius: 999px; transition: background 0.15s; }
+        .alg-toggle .thumb {
+            position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+            background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.35); transition: transform 0.15s;
+        }
+        .alg-toggle input:checked + .track { background: #2f9e44; }
+        .alg-toggle input:checked + .track .thumb { transform: translateX(18px); }
+        .alg-list-note { margin: 0 0 10px; font-size: 12px; color: #868e96; line-height: 1.4; }
+        .modal-back {
+            position: absolute; top: 12px; left: 12px;
+            border: none; background: none; cursor: pointer;
+            font: 600 14px system-ui, -apple-system, sans-serif; color: #555; padding: 4px 6px;
+        }
+        .modal-back:hover { color: #000; }
+        #algListModal .modal { padding-top: 46px; }
         .branches { display: flex; gap: 24px; align-items: flex-start; justify-content: center; }
         .branch-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
         .cubes-row { display: flex; gap: 18px; margin-top: 2px; }
@@ -224,10 +295,13 @@
     </div>
 </div>
 <div id="solveTime">
+    <button id="solveTimeToggle" aria-label="Collapse breakdown">&#9662;</button>
     <div id="solveTimeLine"></div>
     <div id="solveMoveCount"></div>
     <div id="solveBreakdown"></div>
 </div>
+
+<div id="solveBlocked"></div>
 
 <div id="sliders">
     <div class="slider">
@@ -267,12 +341,24 @@
                 <div class="node">F2L &mdash; first two layers</div>
                 <p class="step-note">Each bottom corner is joined with its matching middle edge and the pair is inserted together &mdash; the first and second layers finish at the same time, with no memorised insertion algorithms.</p>
                 <div class="flow-arrow">&#8595;</div>
-                <div class="node">OLL &mdash; orient last layer</div>
+                <button id="ollNode" class="node clickable">OLL &mdash; orient last layer <span class="node-hint">(view all &#8250;)</span></button>
                 <p class="step-note">All 57 cases. Turns the whole last-layer face a single colour.</p>
                 <div class="flow-arrow">&#8595;</div>
-                <div class="node">PLL &mdash; permute last layer</div>
+                <button id="pllNode" class="node clickable">PLL &mdash; permute last layer <span class="node-hint">(view all &#8250;)</span></button>
                 <p class="step-note">All 21 cases. Slides the oriented pieces home. Solved.</p>
             </div>
+        </div>
+    </div>
+</div>
+
+<div id="algListModal" class="modal-overlay">
+    <div class="modal">
+        <button id="algListBack" class="modal-back" aria-label="Back">&#8249; Back</button>
+        <button id="algListClose" class="modal-close" aria-label="Close">&times;</button>
+        <h2 id="algListTitle">Algorithms</h2>
+        <div class="modal-body">
+            <p class="alg-list-note">Turn a case off to keep Auto Solve from using it. If a scramble needs a disabled case, Auto Solve will say so instead of solving.</p>
+            <ol id="algListBody" class="alg-list"></ol>
         </div>
     </div>
 </div>
@@ -678,6 +764,7 @@ function scramble(moves) {
     isBusy = true;
     hardResetToSolved(); // guarantee the scramble we're about to generate starts from solved
     solveTiming = false; solveTimeEl.classList.remove('visible'); // not a solve; clear any old time
+    solveBlockedEl.classList.remove('visible');
     if (userSolveMode) {                          // new scramble: show the cube scrambling again
         stopUserTimerLoop();
         resetSpaceHold();
@@ -722,6 +809,8 @@ const solveTimeEl = document.getElementById('solveTime');
 const solveTimeLineEl = document.getElementById('solveTimeLine');
 const solveMoveCountEl = document.getElementById('solveMoveCount');
 const solveBreakdownEl = document.getElementById('solveBreakdown');
+const solveTimeToggleEl = document.getElementById('solveTimeToggle');
+solveTimeToggleEl.addEventListener('click', () => solveTimeEl.classList.toggle('collapsed'));
 let solveTiming = false;      // true only while a Solve (not a Scramble) is animating
 let solveStartTime = 0;
 let solvePanelBottom = 0;     // bottom of the collapsed moves panel, captured when the solve begins
@@ -742,7 +831,18 @@ function showSolveTime(ms) {
         solveBreakdownEl.appendChild(row);
     }
     solveTimeEl.style.top = (solvePanelBottom + 8) + 'px'; // fixed anchor; expanding the panel won't shift it
+    solveTimeEl.classList.remove('collapsed'); // each new solve opens fresh; the person can re-collapse it
     solveTimeEl.classList.add('visible');
+}
+
+// Shown instead of a solve when the scramble needs an algorithm that's been disabled in the OLL/PLL
+// reference panel — Auto Solve genuinely can't complete it (no fallback algorithm exists for that
+// specific case), so this says so plainly rather than doing nothing or silently picking something else.
+const solveBlockedEl = document.getElementById('solveBlocked');
+function showSolveBlocked(caseName) {
+    solveBlockedEl.textContent = `Can't auto-solve — this scramble needs ${caseName}, which is disabled. Re-enable it in Algorithms, or try Scramble again.`;
+    solveBlockedEl.style.top = (solvePanelBottom + 8) + 'px';
+    solveBlockedEl.classList.add('visible');
 }
 
 // ----- User Solve Mode: a speedcubing-style practice timer -----
@@ -763,7 +863,12 @@ const timesListEl = document.getElementById('timesList');
 const timesEmptyEl = document.getElementById('timesEmpty');
 const clearTimesBtn = document.getElementById('clearTimesBtn');
 let userSolveTimes = []; // ms, in the order solved
+function closeAllRowMenus() {
+    document.querySelectorAll('.row-dropdown.open').forEach(d => d.classList.remove('open'));
+    timesListEl.querySelectorAll('.row-dots.active').forEach(b => b.classList.remove('active'));
+}
 function renderSolveTimes() {
+    document.querySelectorAll('body > .row-dropdown').forEach(el => el.remove()); // clear last render's menus
     const has = userSolveTimes.length > 0;
     timesEmptyEl.style.display = has ? 'none' : 'block';
     timesListEl.style.display = has ? '' : 'none';
@@ -773,11 +878,44 @@ function renderSolveTimes() {
     userSolveTimes.forEach((ms, i) => {
         const li = document.createElement('li');
         if (ms === best) li.classList.add('best');
-        li.innerHTML = `<span>#${i + 1}</span><span>${fmtBigTime(ms)}s</span>`;
+
+        const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = `#${i + 1}`;
+        const val = document.createElement('span'); val.className = 'val'; val.textContent = `${fmtBigTime(ms)}s`;
+
+        const dots = document.createElement('button');
+        dots.className = 'row-dots'; dots.type = 'button'; dots.setAttribute('aria-label', 'Options');
+        dots.textContent = '\u22EE'; // vertical ellipsis
+
+        const menu = document.createElement('div'); menu.className = 'row-dropdown';
+        const del = document.createElement('button');
+        del.className = 'row-delete'; del.type = 'button'; del.textContent = 'Delete';
+        del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            userSolveTimes.splice(i, 1);
+            renderSolveTimes();
+        });
+        menu.appendChild(del);
+        document.body.appendChild(menu); // fixed-positioned at the body level — never clipped by the scrolling list
+
+        dots.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const wasOpen = menu.classList.contains('open');
+            closeAllRowMenus();
+            if (!wasOpen) {
+                const r = dots.getBoundingClientRect();
+                menu.style.top = (r.bottom + 4) + 'px';
+                menu.style.right = (window.innerWidth - r.right) + 'px';
+                menu.classList.add('open');
+                dots.classList.add('active');
+            }
+        });
+
+        li.appendChild(idx); li.appendChild(val); li.appendChild(dots);
         timesListEl.appendChild(li);
     });
     timesListEl.scrollTop = timesListEl.scrollHeight; // keep the newest solve in view
 }
+window.addEventListener('click', closeAllRowMenus); // clicking anywhere else closes an open row menu
 clearTimesBtn.addEventListener('click', () => { userSolveTimes = []; renderSolveTimes(); });
 renderSolveTimes();
 
@@ -791,6 +929,8 @@ function enterUserSolveMode() {
     userSolveHintEl.textContent = 'Press space to start';
     userSolveTimeBigEl.textContent = '0.000';
     solveTimesPanel.classList.add('visible');
+    solveTimeEl.classList.remove('visible'); // Automatic Solve's time/breakdown panel isn't relevant here
+    movesEl.classList.remove('visible');     // ...and neither is its unbroken, un-labelled move list
     refreshButtons();
 }
 function exitUserSolveMode() {
@@ -801,6 +941,8 @@ function exitUserSolveMode() {
     userSolveState = 'ready';
     userSolveOverlay.classList.remove('visible');
     solveTimesPanel.classList.remove('visible');
+    closeAllRowMenus(); // don't leave a floating delete-menu behind once the panel is hidden
+    solveTimeEl.classList.remove('visible'); // clear any stale time/breakdown from before Manual Solve
     manualSolveBtn.textContent = 'Manual Solve';
     manualSolveBtn.blur();
     refreshButtons();
@@ -865,7 +1007,62 @@ algoBtn.addEventListener('click', () => algoModal.classList.add('open'));
 algoClose.addEventListener('click', () => algoModal.classList.remove('open'));
 // conveniences: click the dark backdrop or press Escape to close too
 algoModal.addEventListener('click', (e) => { if (e.target === algoModal) algoModal.classList.remove('open'); });
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') algoModal.classList.remove('open'); });
+window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    algoModal.classList.remove('open');
+    algListModal.classList.remove('open');
+});
+
+// OLL/PLL algorithm list: built straight from OLL_ALGS/PLL_ALGS, the same tables the solver looks
+// up at solve time, so this list can never drift out of sync with what actually gets played.
+const algListModal = document.getElementById('algListModal');
+const algListTitle = document.getElementById('algListTitle');
+const algListBody = document.getElementById('algListBody');
+const algListClose = document.getElementById('algListClose');
+const algListBack = document.getElementById('algListBack');
+function openAlgList(kind) {
+    const src = kind === 'OLL' ? OLL_ALGS : PLL_ALGS;
+    algListTitle.textContent = `${kind} Algorithms`;
+    algListBody.innerHTML = '';
+    let n = 1;
+    for (const [name, str] of Object.entries(src)) {
+        const key = `${kind}:${name}`;
+        const li = document.createElement('li');
+        li.classList.toggle('alg-disabled', disabledAlgs.has(key));
+
+        const num = document.createElement('div'); num.className = 'alg-num'; num.textContent = n++;
+        const info = document.createElement('div'); info.className = 'alg-info';
+        const nm = document.createElement('div'); nm.className = 'alg-name';
+        nm.textContent = kind === 'OLL' ? `OLL ${name}` : `${name} Perm`;
+        const al = document.createElement('div'); al.className = 'alg-str'; al.textContent = str;
+        info.appendChild(nm); info.appendChild(al);
+
+        const toggle = document.createElement('label');
+        toggle.className = 'alg-toggle';
+        toggle.title = 'Enable/disable this algorithm in Auto Solve';
+        const input = document.createElement('input');
+        input.type = 'checkbox'; input.checked = !disabledAlgs.has(key);
+        const track = document.createElement('span'); track.className = 'track';
+        const thumb = document.createElement('span'); thumb.className = 'thumb';
+        track.appendChild(thumb);
+        input.addEventListener('change', () => {
+            if (input.checked) disabledAlgs.delete(key); else disabledAlgs.add(key);
+            li.classList.toggle('alg-disabled', !input.checked);
+        });
+        toggle.appendChild(input); toggle.appendChild(track);
+
+        li.appendChild(num); li.appendChild(info); li.appendChild(toggle);
+        algListBody.appendChild(li);
+    }
+    algoModal.classList.remove('open');
+    algListModal.classList.add('open');
+}
+document.getElementById('ollNode').addEventListener('click', () => openAlgList('OLL'));
+document.getElementById('pllNode').addEventListener('click', () => openAlgList('PLL'));
+algListClose.addEventListener('click', () => algListModal.classList.remove('open'));
+algListBack.addEventListener('click', () => { algListModal.classList.remove('open'); algoModal.classList.add('open'); });
+algListModal.addEventListener('click', (e) => { if (e.target === algListModal) algListModal.classList.remove('open'); });
+
 const spinSpeedEl = document.getElementById('spinSpeed');
 const spinValEl = document.getElementById('spinVal');
 const lightingEl = document.getElementById('lighting');
@@ -873,16 +1070,22 @@ const lightValEl = document.getElementById('lightVal');
 
 // True when every cubie is back in its home position AND its home orientation,
 // regardless of how it got there. This is the real "is the cube solved?" test.
+// A cube counts as solved if every cubie is home once the whole-cube orientation is accounted for —
+// not just "every cubie is at its exact original mesh slot". A manual slice turn can leave every face
+// a single colour while the centres sit in a different (but still valid) whole-cube orientation; that
+// cube is genuinely solved and should disable Solve too, not just the identity-orientation case.
 function isSolved() {
-    return cubies.every(c => {
-        const inPlace =
-            Math.abs(c.position.x - c.userData.x * spacing) < 0.05 &&
-            Math.abs(c.position.y - c.userData.y * spacing) < 0.05 &&
-            Math.abs(c.position.z - c.userData.z * spacing) < 0.05;
-        // |quaternion.w| ~ 1 means the cubie is unrotated (its starting orientation)
-        const upright = Math.abs(c.quaternion.w) > 0.9999;
-        return inPlace && upright;
-    });
+    const state = currentState();
+    const gi = detectRotation(state);
+    if (gi < 0) return false; // mid-move / corrupted centres — not a valid, checkable state
+    const norm = rotateState(state, transpose3(ORIENTS[gi]));
+    for (let i = 0; i < norm.length; i++) {
+        const c = norm[i], pos = pFromIndex(c / 24 | 0), home = HOMES[i];
+        if (pos[0] !== home[0] || pos[1] !== home[1] || pos[2] !== home[2]) return false;
+        // A centre (single sticker) spinning in place is invisible — only edges/corners need ori 0.
+        if (nonZeroCount(home) >= 2 && (c % 24) !== 0) return false;
+    }
+    return true;
 }
 
 function refreshButtons() {
@@ -1210,36 +1413,45 @@ function llSolved(state, llPos) {
     return true;
 }
 // Build the conjugated recognition tables for the last-layer face named by g_f.
+// Algorithms turned off in the OLL/PLL reference panel, keyed 'OLL:21' / 'PLL:Ja'. Auto Solve simply
+// never learns these cases exist -- if a scramble's last layer needs one, no signature matches it and
+// the solve reports that it can't complete, rather than silently substituting something else.
+const disabledAlgs = new Set();
 function buildLLMaps(gf, llPos, Lunit) {
     const solved = subsetGoal(HOMES);
     const Uc = conjugateMove(gf, { axis:'y', layer:1, dir:-1 });      // conjugated U = a last-layer turn
     const UcSeq = [[], [Uc], [Uc, Uc], [Uc, Uc, Uc]];                 // U^0 .. U^3 about the last layer
     const ollMap = new Map(), pllMap = new Map();
+    const ollMapFull = new Map(), pllMapFull = new Map(); // unfiltered — only used to name a blocked case
     for (const [name, str] of Object.entries(OLL_ALGS)) {
         const ac = parseAlg(str).map(m => conjugateMove(gf, m));
         const sig = ollSignature(applyLLMoves(solved, invertMoves(ac)), llPos, Lunit);
-        if (!ollMap.has(sig)) ollMap.set(sig, { alg: ac, name: `OLL ${name}` });
+        const entry = { alg: ac, name: `OLL ${name}` };
+        if (!ollMapFull.has(sig)) ollMapFull.set(sig, entry);
+        if (!disabledAlgs.has('OLL:' + name) && !ollMap.has(sig)) ollMap.set(sig, entry);
     }
     for (const [name, str] of Object.entries(PLL_ALGS)) {
         const ac = parseAlg(str).map(m => conjugateMove(gf, m));
         for (let b = 0; b < 4; b++) {                                 // each alg also covers 4 post-AUFs
             const caseState = applyLLMoves(applyLLMoves(solved, UcSeq[(4 - b) % 4]), invertMoves(ac)); // alg^-1 . U^-b . solved
             const sig = pllSignature(caseState, llPos);
-            if (!pllMap.has(sig)) pllMap.set(sig, { alg: ac, postAuf: b, name: `${name} Perm` });
+            const entry = { alg: ac, postAuf: b, name: `${name} Perm` };
+            if (!pllMapFull.has(sig)) pllMapFull.set(sig, entry);
+            if (!disabledAlgs.has('PLL:' + name) && !pllMap.has(sig)) pllMap.set(sig, entry);
         }
     }
-    return { ollMap, pllMap, UcSeq };
+    return { ollMap, pllMap, ollMapFull, pllMapFull, UcSeq };
 }
-// Solve the last layer of a centres-home, F2L-complete state. Returns { moves, segments } where
-// segments names each named algorithm actually used (OLL #, PLL name) plus any AUF setup turns, or
-// null if no case matched.
+// Solve the last layer of a centres-home, F2L-complete state. Returns { moves, segments } on success;
+// { blocked: name } if the case needed is a disabled algorithm; or null if no case matches at all
+// (shouldn't happen — the 216 OLL and reachable PLL states are fully covered when nothing is disabled).
 function solveLastLayer(state, faceVec) {
     const a = faceVec[0] ? 'x' : (faceVec[1] ? 'y' : 'z');
     const Lunit = [-faceVec[0], -faceVec[1], -faceVec[2]];            // last layer is opposite the solved face
     const ls = Lunit[faceAxisIndex(a)];
     const gf = findOrientTo(faceVec);
     const llPos = llPositions(a, ls);
-    const { ollMap, pllMap, UcSeq } = buildLLMaps(gf, llPos, Lunit);
+    const { ollMap, pllMap, ollMapFull, pllMapFull, UcSeq } = buildLLMaps(gf, llPos, Lunit);
     let s = state, moves = [], segments = [];
     const pushAUF = k => { if (k) segments.push({ label: 'AUF', moves: UcSeq[k].slice() }); };
     if (!llOriented(s, llPos, Lunit)) {                              // OLL (skip if already oriented)
@@ -1253,7 +1465,11 @@ function solveLastLayer(state, faceVec) {
                 moves.push(...UcSeq[k], ...hit.alg); s = applyLLMoves(t, hit.alg); done = true; break;
             }
         }
-        if (!done) return null;
+        if (!done) {
+            let full = null;
+            for (let k = 0; k < 4 && !full; k++) full = ollMapFull.get(ollSignature(applyLLMoves(s, UcSeq[k]), llPos, Lunit));
+            return full ? { blocked: full.name } : null;
+        }
     }
     let pre = false;                                                 // already permuted? then skip PLL
     for (let k = 0; k < 4; k++) if (llSolved(applyLLMoves(s, UcSeq[k]), llPos)) { pre = true; break; }
@@ -1272,7 +1488,11 @@ function solveLastLayer(state, faceVec) {
                 done = true; break;
             }
         }
-        if (!done) return null;
+        if (!done) {
+            let full = null;
+            for (let k = 0; k < 4 && !full; k++) full = pllMapFull.get(pllSignature(applyLLMoves(s, UcSeq[k]), llPos));
+            return full ? { blocked: full.name } : null;
+        }
     }
     let done = false;                                                // final AUF
     for (let k = 0; k < 4; k++) { const t = applyLLMoves(s, UcSeq[k]); if (llSolved(t, llPos)) { pushAUF(k); moves.push(...UcSeq[k]); s = t; done = true; break; } }
@@ -1320,6 +1540,7 @@ function solveF2LFromState(state) {
 
     const lastLayer = solveLastLayer(work, faceVec);
     if (lastLayer === null) return null;
+    if (lastLayer.blocked) return { blocked: lastLayer.blocked };
     return { firstLayer, middle, lastLayer: lastLayer.moves, llSegments: lastLayer.segments, faceVec };
 }
 
@@ -1347,6 +1568,13 @@ function solve() {
     const g = ORIENTS[gi];
     const plan = solveF2LFromState(rotateState(state, transpose3(g))); // solve in centres-home frame
     if (!plan) return;
+    if (plan.blocked) {
+        solvePanelBottom = movesEl.getBoundingClientRect().bottom;
+        solveTimeEl.classList.remove('visible');
+        showSolveBlocked(plan.blocked);
+        return;
+    }
+    solveBlockedEl.classList.remove('visible'); // a successful plan supersedes any earlier blocked notice
 
     // Map the solution (and the solved-face normal) from the normalised frame back to the real cube.
     const moves = m => conjugateMove(g, m);
@@ -1355,6 +1583,11 @@ function solve() {
     const lastLayer = plan.lastLayer.map(moves);
     const llSegments = plan.llSegments.map(seg => ({ label: seg.label, moves: seg.moves.map(moves) }));
     const faceVec = bfsMatVec(g, plan.faceVec);
+
+    // Belt-and-suspenders: isSolved() above should already have caught "nothing to do", but if the
+    // plan still comes back empty, bail out with zero visible side effects rather than flipping the
+    // camera and showing an empty breakdown for a solve that didn't actually do anything.
+    if (firstLayer.length + middle.length + lastLayer.length === 0) { refreshButtons(); return; }
 
     isBusy = true;
     refreshButtons();
