@@ -129,25 +129,12 @@
         #timesList li .idx { color: #868e96; }
         #timesList li .val { margin-right: auto; padding-left: 6px; }
         #timesList li.best .val { color: #2f9e44; font-weight: 700; }
-        #timesList .row-dots {
-            flex: none; border: none; cursor: pointer;
-            font-size: 18px; font-weight: 700; color: #495057; background: rgba(0,0,0,0.06);
-            padding: 1px 7px; line-height: 1.4; border-radius: 5px;
-        }
-        #timesList .row-dots:hover, #timesList .row-dots.active { color: #fff; background: #495057; }
-        #timesList .row-dropdown {
-            display: none; position: fixed; z-index: 50;
-            background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 6px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.28);
-            overflow: hidden; min-width: 90px;
-        }
-        #timesList .row-dropdown.open { display: block; }
         #timesList .row-delete {
-            display: block; width: 100%; padding: 8px 12px; border: none; background: none;
-            cursor: pointer; font: 700 13px system-ui, -apple-system, sans-serif;
-            color: #e03131; text-align: left;
+            flex: none; border: none; cursor: pointer;
+            font-size: 15px; font-weight: 700; color: #495057; background: rgba(0,0,0,0.06);
+            padding: 1px 8px; line-height: 1.5; border-radius: 5px;
         }
-        #timesList .row-delete:hover { background: #fff0f0; }
+        #timesList .row-delete:hover { color: #fff; background: #e03131; }
         .slider {
             display: flex; flex-direction: column; gap: 5px;
             padding: 8px 10px; border-radius: 8px;
@@ -357,7 +344,7 @@
         <button id="algListClose" class="modal-close" aria-label="Close">&times;</button>
         <h2 id="algListTitle">Algorithms</h2>
         <div class="modal-body">
-            <p class="alg-list-note">Turn a case off to keep Auto Solve from using it. If a scramble needs a disabled case, Auto Solve will say so instead of solving.</p>
+            <p class="alg-list-note">Turn a case off to keep Auto Solve from using it directly. It will still try to route around it by combining other enabled algorithms — Auto Solve only reports "can't solve" if that combination search also fails.</p>
             <ol id="algListBody" class="alg-list"></ol>
         </div>
     </div>
@@ -835,12 +822,12 @@ function showSolveTime(ms) {
     solveTimeEl.classList.add('visible');
 }
 
-// Shown instead of a solve when the scramble needs an algorithm that's been disabled in the OLL/PLL
-// reference panel — Auto Solve genuinely can't complete it (no fallback algorithm exists for that
-// specific case), so this says so plainly rather than doing nothing or silently picking something else.
+// Shown instead of a solve when the direct case AND every combination of currently-enabled algorithms
+// (tried automatically first) both fail to reach a solved last layer — meaning too many algorithms are
+// disabled at once for any route to exist, not just the one "natural" case.
 const solveBlockedEl = document.getElementById('solveBlocked');
 function showSolveBlocked(caseName) {
-    solveBlockedEl.textContent = `Can't auto-solve — this scramble needs ${caseName}, which is disabled. Re-enable it in Algorithms, or try Scramble again.`;
+    solveBlockedEl.textContent = `Can't auto-solve — this scramble needs ${caseName}, and no combination of your enabled algorithms can route around it either. Re-enable some algorithms, or try Scramble again.`;
     solveBlockedEl.style.top = (solvePanelBottom + 8) + 'px';
     solveBlockedEl.classList.add('visible');
 }
@@ -863,12 +850,7 @@ const timesListEl = document.getElementById('timesList');
 const timesEmptyEl = document.getElementById('timesEmpty');
 const clearTimesBtn = document.getElementById('clearTimesBtn');
 let userSolveTimes = []; // ms, in the order solved
-function closeAllRowMenus() {
-    document.querySelectorAll('.row-dropdown.open').forEach(d => d.classList.remove('open'));
-    timesListEl.querySelectorAll('.row-dots.active').forEach(b => b.classList.remove('active'));
-}
 function renderSolveTimes() {
-    document.querySelectorAll('body > .row-dropdown').forEach(el => el.remove()); // clear last render's menus
     const has = userSolveTimes.length > 0;
     timesEmptyEl.style.display = has ? 'none' : 'block';
     timesListEl.style.display = has ? '' : 'none';
@@ -882,40 +864,16 @@ function renderSolveTimes() {
         const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = `#${i + 1}`;
         const val = document.createElement('span'); val.className = 'val'; val.textContent = `${fmtBigTime(ms)}s`;
 
-        const dots = document.createElement('button');
-        dots.className = 'row-dots'; dots.type = 'button'; dots.setAttribute('aria-label', 'Options');
-        dots.textContent = '\u22EE'; // vertical ellipsis
-
-        const menu = document.createElement('div'); menu.className = 'row-dropdown';
         const del = document.createElement('button');
-        del.className = 'row-delete'; del.type = 'button'; del.textContent = 'Delete';
-        del.addEventListener('click', (e) => {
-            e.stopPropagation();
-            userSolveTimes.splice(i, 1);
-            renderSolveTimes();
-        });
-        menu.appendChild(del);
-        document.body.appendChild(menu); // fixed-positioned at the body level — never clipped by the scrolling list
+        del.className = 'row-delete'; del.type = 'button'; del.setAttribute('aria-label', 'Delete this time');
+        del.textContent = '\u00D7'; // ×
+        del.addEventListener('click', () => { userSolveTimes.splice(i, 1); renderSolveTimes(); });
 
-        dots.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const wasOpen = menu.classList.contains('open');
-            closeAllRowMenus();
-            if (!wasOpen) {
-                const r = dots.getBoundingClientRect();
-                menu.style.top = (r.bottom + 4) + 'px';
-                menu.style.right = (window.innerWidth - r.right) + 'px';
-                menu.classList.add('open');
-                dots.classList.add('active');
-            }
-        });
-
-        li.appendChild(idx); li.appendChild(val); li.appendChild(dots);
+        li.appendChild(idx); li.appendChild(val); li.appendChild(del);
         timesListEl.appendChild(li);
     });
     timesListEl.scrollTop = timesListEl.scrollHeight; // keep the newest solve in view
 }
-window.addEventListener('click', closeAllRowMenus); // clicking anywhere else closes an open row menu
 clearTimesBtn.addEventListener('click', () => { userSolveTimes = []; renderSolveTimes(); });
 renderSolveTimes();
 
@@ -941,7 +899,6 @@ function exitUserSolveMode() {
     userSolveState = 'ready';
     userSolveOverlay.classList.remove('visible');
     solveTimesPanel.classList.remove('visible');
-    closeAllRowMenus(); // don't leave a floating delete-menu behind once the panel is hidden
     solveTimeEl.classList.remove('visible'); // clear any stale time/breakdown from before Manual Solve
     manualSolveBtn.textContent = 'Manual Solve';
     manualSolveBtn.blur();
@@ -1378,6 +1335,72 @@ function applyLLMoves(state, moves) {
     return s;
 }
 function invertMoves(moves) { return moves.slice().reverse().map(m => ({ axis: m.axis, layer: m.layer, dir: -m.dir })); }
+
+// ----- Fallback when a disabled algorithm blocks the direct 1-look lookup -----
+// Every OLL/PLL algorithm, applied to ANY state (not just its "intended" case), provably leaves the
+// first two layers untouched -- that's what makes it a valid algorithm at all. That means every
+// currently-ENABLED algorithm can be reused as a safe, composable building block: search combinations
+// of them (plus plain U turns) for one that reaches a fully solved last layer, even when the single
+// case that would normally apply directly has been turned off. This needs no new algorithm data and
+// can't ever disturb F2L, since every building block is individually guaranteed not to.
+function buildLLMacros(gf, disabledSet) {
+    const Uc = conjugateMove(gf, { axis:'y', layer:1, dir:-1 });
+    const macros = [ { name: 'U', moves: [Uc] }, { name: 'U2', moves: [Uc, Uc] }, { name: "U'", moves: [Uc, Uc, Uc] } ];
+    for (const [name, str] of Object.entries(OLL_ALGS)) {
+        if (disabledSet.has('OLL:' + name)) continue;
+        macros.push({ name: `OLL ${name}`, moves: parseAlg(str).map(m => conjugateMove(gf, m)) });
+    }
+    for (const [name, str] of Object.entries(PLL_ALGS)) {
+        if (disabledSet.has('PLL:' + name)) continue;
+        macros.push({ name: `${name} Perm`, moves: parseAlg(str).map(m => conjugateMove(gf, m)) });
+    }
+    return macros;
+}
+function applyMacroToSubset(codes, moves) {
+    let c = codes;
+    for (const m of moves) c = applySubset(c, QUARTER_MOVE[m.axis + m.layer + m.dir]);
+    return c;
+}
+// Bidirectional search over MACROS (whole algorithms, not single quarter turns) -- each step is "do
+// this whole algorithm", so a handful of steps can reach a huge fraction of last-layer states, letting
+// a solve route around a disabled case by combining whichever others are still enabled.
+function llMacroBFS(startCodes, goalCodes, macros, maxDepthEach, maxStates) {
+    const sKey = subsetKey(startCodes), gKey = subsetKey(goalCodes);
+    if (sKey === gKey) return [];
+    const F = new Map(), B = new Map();
+    F.set(sKey, { parent: null, mi: null }); B.set(gKey, { parent: null, mi: null });
+    let frF = [{ key: sKey, codes: startCodes }], frB = [{ key: gKey, codes: goalCodes }];
+    let depth = 0, total = 2;
+    const buildPath = (map, key) => {
+        const out = []; let k = key;
+        while (true) { const n = map.get(k); if (!n || n.parent === null) break; out.push(macros[n.mi]); k = n.parent; }
+        return out.reverse();
+    };
+    while (frF.length && frB.length && depth < maxDepthEach * 2) {
+        const expandF = frF.length <= frB.length;
+        const front = expandF ? frF : frB, visited = expandF ? F : B, other = expandF ? B : F;
+        const next = [];
+        for (const it of front) {
+            for (let mi = 0; mi < macros.length; mi++) {
+                const nc = applyMacroToSubset(it.codes, macros[mi].moves);
+                const nk = subsetKey(nc);
+                if (visited.has(nk)) continue;
+                if (other.has(nk)) {
+                    const fSeq = expandF ? buildPath(F, it.key).concat([macros[mi]]) : buildPath(F, nk);
+                    const bSeq = expandF ? buildPath(B, nk) : buildPath(B, it.key).concat([macros[mi]]);
+                    const tail = bSeq.slice().reverse().map(m => ({ name: m.name, moves: invertMoves(m.moves) }));
+                    return fSeq.concat(tail);
+                }
+                visited.set(nk, { parent: it.key, mi });
+                next.push({ key: nk, codes: nc });
+                if (++total > maxStates) return null;
+            }
+        }
+        if (expandF) frF = next; else frB = next;
+        depth++;
+    }
+    return null;
+}
 // The 8 last-layer edge/corner homes for a face (axis a, sign s), in a fixed deterministic order.
 function llPositions(a, s) {
     const ai = faceAxisIndex(a);
@@ -1442,8 +1465,9 @@ function buildLLMaps(gf, llPos, Lunit) {
     }
     return { ollMap, pllMap, ollMapFull, pllMapFull, UcSeq };
 }
-// Solve the last layer of a centres-home, F2L-complete state. Returns { moves, segments } on success;
-// { blocked: name } if the case needed is a disabled algorithm; or null if no case matches at all
+// Solve the last layer of a centres-home, F2L-complete state. Returns { moves, segments } on success
+// (segments name each algorithm actually used, including any fallback ones); { blocked: name } only
+// if even the fallback search can't route around a disabled case; or null if no case matches at all
 // (shouldn't happen — the 216 OLL and reachable PLL states are fully covered when nothing is disabled).
 function solveLastLayer(state, faceVec) {
     const a = faceVec[0] ? 'x' : (faceVec[1] ? 'y' : 'z');
@@ -1454,6 +1478,22 @@ function solveLastLayer(state, faceVec) {
     const { ollMap, pllMap, ollMapFull, pllMapFull, UcSeq } = buildLLMaps(gf, llPos, Lunit);
     let s = state, moves = [], segments = [];
     const pushAUF = k => { if (k) segments.push({ label: 'AUF', moves: UcSeq[k].slice() }); };
+
+    // Compose whichever algorithms are currently enabled to finish the ENTIRE remaining last layer in
+    // one search (it doesn't separate orientation from permutation) — used only once the direct 1-look
+    // case is unavailable. Mutates s/moves/segments in place; returns whether it succeeded.
+    const fallbackFromHere = () => {
+        const macros = buildLLMacros(gf, disabledAlgs);
+        const goalCodes = subsetGoal(llPos);
+        for (const depth of [2, 3]) {
+            const seq = llMacroBFS(subsetCodes(s, llPos), goalCodes, macros, depth, 400000);
+            if (seq === null) continue;
+            for (const m of seq) { segments.push({ label: m.name, moves: m.moves.slice() }); moves.push(...m.moves); s = applyLLMoves(s, m.moves); }
+            return true;
+        }
+        return false;
+    };
+
     if (!llOriented(s, llPos, Lunit)) {                              // OLL (skip if already oriented)
         let done = false;
         for (let k = 0; k < 4; k++) {
@@ -1466,6 +1506,7 @@ function solveLastLayer(state, faceVec) {
             }
         }
         if (!done) {
+            if (fallbackFromHere()) return { moves, segments };
             let full = null;
             for (let k = 0; k < 4 && !full; k++) full = ollMapFull.get(ollSignature(applyLLMoves(s, UcSeq[k]), llPos, Lunit));
             return full ? { blocked: full.name } : null;
@@ -1489,6 +1530,7 @@ function solveLastLayer(state, faceVec) {
             }
         }
         if (!done) {
+            if (fallbackFromHere()) return { moves, segments };
             let full = null;
             for (let k = 0; k < 4 && !full; k++) full = pllMapFull.get(pllSignature(applyLLMoves(s, UcSeq[k]), llPos));
             return full ? { blocked: full.name } : null;
